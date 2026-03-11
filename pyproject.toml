@@ -115,6 +115,7 @@ robstride = ["lerobot[can-dep]"]
 
 # Robots
 openarms = ["lerobot[damiao]"]
+romoya = ["lerobot_robot_romoya"]
 gamepad = ["lerobot[pygame-dep]", "hidapi>=0.14.0,<0.15.0"]
 hopejr = ["lerobot[feetech]", "lerobot[pygame-dep]"]
 lekiwi = ["lerobot[feetech]", "pyzmq>=26.2.1,<28.0.0"]
@@ -234,6 +235,9 @@ lerobot = ["envs/*.json"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.uv.sources]
+lerobot_robot_romoya = { path = "lerobot_robot_romoya", editable = true }
 
 [tool.ruff]
 target-version = "py312"

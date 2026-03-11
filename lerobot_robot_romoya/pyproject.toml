@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "lerobot_robot_romoya"
+version = "0.1.0"
+description = "Custom LeRobot plugin package for Romoya robots."
+requires-python = ">=3.12"
+dependencies = ["lerobot==0.5.1", "lebai-sdk==0.3.7", "pynput>=1.7.8,<1.9.0"]
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["."]
