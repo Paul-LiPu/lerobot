@@ -15,6 +15,7 @@ class LebaiFollowerConfig(RobotConfig):
     velocity: float = 1.0
     blend_radius: float = 0.0
     gripper_force: float = 100.0
+    gripper_closed_position: float = 0.0
     use_effort: bool = True
     use_velocity: bool = True
     use_acceleration: bool = True

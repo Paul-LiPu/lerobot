@@ -1,0 +1,16 @@
+uv run --extra romoya lerobot-teleoperate \
+  --fps=30 \
+  --robot.type=romoya_lebai_follower \
+  --robot.ip=192.168.50.172 \
+  --robot.id=lebai_follower_arm \
+  --robot.cameras='{ front: {type: opencv, index_or_path: /dev/video0, width: 640, height: 480, fps: 30}}' \
+  --robot.gripper_closed_position=82.0 \
+  --robot.gripper_force=100 \
+  --robot.acceleration=1.0 \
+  --robot.velocity=1.0 \
+  --robot.blend_radius=0.0 \
+  --teleop.type=romoya_lebai_leader \
+  --teleop.ip=192.168.50.154 \
+  --teleop.gripper_force=100 \
+  --teleop.id=lebai_leader_arm \
+  --display_data=trued

@@ -9,7 +9,7 @@ from lerobot.processor import RobotAction
 from lerobot.teleoperators import Teleoperator
 from lerobot.utils.errors import DeviceAlreadyConnectedError, DeviceNotConnectedError
 
-from ..lebai_sdk_utils import JOINT_COUNT, connect_arm, get_claw_data, get_field
+from ..lebai_sdk_utils import JOINT_COUNT, connect_arm, get_field
 from .config_lebai_leader import LebaiLeaderConfig
 
 logger = logging.getLogger(__name__)
@@ -19,12 +19,14 @@ try:
     if ("DISPLAY" not in os.environ) and ("linux" in sys.platform):
         logging.info("No DISPLAY set. Skipping pynput import.")
         raise ImportError("pynput blocked intentionally due to no display.")
-    from pynput import keyboard
+    from pynput import keyboard, mouse
 except ImportError:
     keyboard = None
+    mouse = None
     PYNPUT_AVAILABLE = False
 except Exception as e:
     keyboard = None
+    mouse = None
     PYNPUT_AVAILABLE = False
     logging.info(f"Could not import pynput: {e}")
 
@@ -39,10 +41,13 @@ class LebaiLeader(Teleoperator):
         self._arm = None
         self.event_queue = Queue()
         self.current_pressed = {}
-        self.listener = None
+        self.keyboard_listener = None
+        self.mouse_listener = None
         self.gripper_target = 100.0
         self.do0_target = 0.0
         self.do1_target = 0.0
+        self._gripper_open = True
+        self._suction_on = False
         self.logs = {}
 
     @property
@@ -56,6 +61,7 @@ class LebaiLeader(Teleoperator):
         features = {f"joint{i}.pos": float for i in range(1, JOINT_COUNT + 1)}
         if self.config.use_gripper:
             features["gripper.pos"] = float
+            features["gripper.force"] = float
         if self.config.use_do:
             features["DO_0"] = float
             features["DO_1"] = float
@@ -85,14 +91,16 @@ class LebaiLeader(Teleoperator):
         start_sys = getattr(self.arm, "start_sys", None)
         if callable(start_sys):
             start_sys()
-        self.gripper_target = float(get_claw_data(self.arm)["amplitude"])
         if self.config.enter_teach_mode_on_connect:
             self.teach_mode()
         if PYNPUT_AVAILABLE:
-            self.listener = keyboard.Listener(on_press=self._on_press, on_release=self._on_release)
-            self.listener.start()
+            self.keyboard_listener = keyboard.Listener(on_press=self._on_press, on_release=self._on_release)
+            self.keyboard_listener.start()
+            self.mouse_listener = mouse.Listener(on_click=self._on_click, on_scroll=self._on_scroll)
+            self.mouse_listener.start()
         else:
-            self.listener = None
+            self.keyboard_listener = None
+            self.mouse_listener = None
         self.configure()
         logger.info("%s connected.", self)
 
@@ -115,6 +123,26 @@ class LebaiLeader(Teleoperator):
             logger.info("ESC pressed, disconnecting.")
             self.disconnect()
 
+    def _on_click(self, x, y, button, pressed) -> None:
+        del x, y
+        if not pressed or not PYNPUT_AVAILABLE:
+            return
+        if button == mouse.Button.left:
+            self._gripper_open = not self._gripper_open
+            self.gripper_target = 100.0 if self._gripper_open else 0.0
+        elif button == mouse.Button.right:
+            self._suction_on = not self._suction_on
+            if self._suction_on:
+                self.do0_target = 1.0
+                self.do1_target = 1.0
+            else:
+                self.do0_target = 0.0
+                self.do1_target = 0.0
+
+    def _on_scroll(self, x, y, dx, dy) -> None:
+        del x, y, dx, dy
+        return None
+
     def _drain_pressed_keys(self) -> None:
         while not self.event_queue.empty():
             key, is_pressed = self.event_queue.get_nowait()
@@ -124,17 +152,22 @@ class LebaiLeader(Teleoperator):
 
             if key == keyboard.Key.right:
                 self.gripper_target = 100.0
+                self._gripper_open = True
             elif key == keyboard.Key.left:
                 self.gripper_target = 0.0
+                self._gripper_open = False
             elif key == keyboard.KeyCode.from_char("1"):
                 self.do0_target = 1.0
                 self.do1_target = 1.0
+                self._suction_on = True
             elif key == keyboard.KeyCode.from_char("2"):
                 self.do0_target = 0.0
                 self.do1_target = 1.0
+                self._suction_on = False
             elif key == keyboard.KeyCode.from_char("3"):
                 self.do0_target = 0.0
                 self.do1_target = 0.0
+                self._suction_on = False
 
     def get_action(self) -> RobotAction:
         if not self.is_connected:
@@ -149,6 +182,7 @@ class LebaiLeader(Teleoperator):
             action[f"joint{index}.pos"] = float(position)
         if self.config.use_gripper:
             action["gripper.pos"] = self.gripper_target
+            action["gripper.force"] = float(self.config.gripper_force)
         if self.config.use_do:
             action["DO_0"] = self.do0_target
             action["DO_1"] = self.do1_target
@@ -172,9 +206,12 @@ class LebaiLeader(Teleoperator):
         if self._arm is None:
             return
         try:
-            if self.listener is not None:
-                self.listener.stop()
-                self.listener = None
+            if self.keyboard_listener is not None:
+                self.keyboard_listener.stop()
+                self.keyboard_listener = None
+            if self.mouse_listener is not None:
+                self.mouse_listener.stop()
+                self.mouse_listener = None
             if self.config.exit_teach_mode_on_disconnect:
                 self.end_teach_mode()
             stop_sys = getattr(self.arm, "stop_sys", None)
