@@ -59,6 +59,8 @@ DEFAULT_ROMOYA_ACTION_NAMES = [
 @ACTConfig.register_subclass("act_romoya")
 @dataclass
 class ACTRomoyaConfig(ACTConfig):
+    chunk_size: int = 60
+    n_action_steps: int = 60
     state_feature_names_to_keep: list[str] = field(
         default_factory=lambda: [
             "joint1.pos",
