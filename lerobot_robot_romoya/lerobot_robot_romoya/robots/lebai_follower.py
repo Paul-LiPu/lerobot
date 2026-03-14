@@ -209,11 +209,33 @@ class LebaiFollower(Robot):
 
         return sent_action
 
+    def _set_safe_end_effector_state(self) -> None:
+        """Best-effort safe EE shutdown without interrupting disconnect."""
+        try:
+            self.set_claw(self.config.gripper_open_position, force=self.config.gripper_force)
+            self._last_gripper_target = self.config.gripper_open_position
+            self._last_gripper_force = self.config.gripper_force
+        except Exception:
+            logger.warning("%s failed to reset gripper during disconnect.", self, exc_info=True)
+
+        try:
+            self.set_do("DO_0", 0, self.config.default_do0)
+            self._last_do0_target = int(self.config.default_do0)
+        except Exception:
+            logger.warning("%s failed to reset DO_0 during disconnect.", self, exc_info=True)
+
+        try:
+            self.set_do("DO_1", 1, self.config.default_do1)
+            self._last_do1_target = int(self.config.default_do1)
+        except Exception:
+            logger.warning("%s failed to reset DO_1 during disconnect.", self, exc_info=True)
+
     def disconnect(self) -> None:
         if self._arm is not None:
             try:
-                self.stop_system()
+                self._set_safe_end_effector_state()
             finally:
+                self.stop_system()
                 self._arm = None
                 self._last_gripper_target = None
                 self._last_gripper_force = None

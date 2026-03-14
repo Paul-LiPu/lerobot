@@ -52,6 +52,7 @@ lerobot-teleoperate \
 """
 
 import logging
+import sys
 import time
 from dataclasses import asdict, dataclass
 from pprint import pformat
@@ -104,6 +105,22 @@ from lerobot.utils.import_utils import register_third_party_plugins
 from lerobot.utils.robot_utils import precise_sleep
 from lerobot.utils.utils import init_logging, move_cursor_up
 from lerobot.utils.visualization_utils import init_rerun, log_rerun_data
+
+
+def safe_disconnect_devices(teleop: Teleoperator | None, robot: Robot | None) -> None:
+    if teleop is not None:
+        try:
+            if teleop.is_connected:
+                teleop.disconnect()
+        except Exception:
+            logging.exception("Failed disconnecting teleoperator during shutdown.")
+
+    if robot is not None:
+        try:
+            if robot.is_connected:
+                robot.disconnect()
+        except Exception:
+            logging.exception("Failed disconnecting robot during shutdown.")
 
 
 @dataclass
@@ -220,6 +237,7 @@ def teleoperate(cfg: TeleoperateConfig):
     teleop = make_teleoperator_from_config(cfg.teleop)
     robot = make_robot_from_config(cfg.robot)
     teleop_action_processor, robot_action_processor, robot_observation_processor = make_default_processors()
+    exit_code = 0
 
     teleop.connect()
     robot.connect()
@@ -238,11 +256,16 @@ def teleoperate(cfg: TeleoperateConfig):
         )
     except KeyboardInterrupt:
         pass
+    except Exception as exc:
+        exit_code = 1
+        logging.exception("Teleoperation stopped due to device/runtime error: %s", exc)
     finally:
         if cfg.display_data:
             rr.rerun_shutdown()
-        teleop.disconnect()
-        robot.disconnect()
+        safe_disconnect_devices(teleop, robot)
+
+    if exit_code:
+        raise SystemExit(exit_code)
 
 
 def main():

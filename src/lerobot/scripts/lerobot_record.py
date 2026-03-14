@@ -68,6 +68,7 @@ lerobot-record \
 """
 
 import logging
+import sys
 import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -147,6 +148,22 @@ from lerobot.utils.utils import (
     log_say,
 )
 from lerobot.utils.visualization_utils import init_rerun, log_rerun_data
+
+
+def safe_disconnect_devices(robot: Robot | None, teleop: Teleoperator | None) -> None:
+    if robot is not None:
+        try:
+            if robot.is_connected:
+                robot.disconnect()
+        except Exception:
+            logging.exception("Failed disconnecting robot during shutdown.")
+
+    if teleop is not None:
+        try:
+            if teleop.is_connected:
+                teleop.disconnect()
+        except Exception:
+            logging.exception("Failed disconnecting teleoperator during shutdown.")
 
 
 @dataclass
@@ -297,6 +314,7 @@ def record_loop(
     postprocessor: PolicyProcessorPipeline[PolicyAction, PolicyAction] | None = None,
     control_time_s: int | None = None,
     single_task: str | None = None,
+    phase_name: str = "recording",
     display_data: bool = False,
     display_compressed_images: bool = False,
 ):
@@ -337,6 +355,23 @@ def record_loop(
     no_action_count = 0
     timestamp = 0
     start_episode_t = time.perf_counter()
+    duration_s = float(control_time_s) if control_time_s is not None else float("nan")
+    banner = "=" * 72
+
+    def emit_phase_banner() -> None:
+        sys.stdout.write(
+            f"\n{banner}\n"
+            f"PHASE: {phase_name.upper()}\n"
+            f"DURATION: {duration_s:.1f}s\n"
+            f"{banner}\n"
+        )
+        sys.stdout.flush()
+
+    recording_banner_delay_s = 2.0
+    banner_printed = not phase_name.lower().startswith("recording")
+    if banner_printed:
+        emit_phase_banner()
+
     while timestamp < control_time_s:
         start_loop_t = time.perf_counter()
 
@@ -387,7 +422,7 @@ def record_loop(
             no_action_count += 1
             if no_action_count == 1 or no_action_count % 10 == 0:
                 logging.warning(
-                    "No policy or teleoperator provided, skipping action generation. "
+                    f"[{phase_name}] No policy or teleoperator provided, skipping action generation. "
                     "This is likely to happen when resetting the environment without a teleop device. "
                     "The robot won't be at its rest position at the start of the next episode."
                 )
@@ -422,13 +457,16 @@ def record_loop(
 
         sleep_time_s: float = 1 / fps - dt_s
         if sleep_time_s < 0:
-            logging.warning(
-                f"Record loop is running slower ({1 / dt_s:.1f} Hz) than the target FPS ({fps} Hz). Dataset frames might be dropped and robot control might be unstable. Common causes are: 1) Camera FPS not keeping up 2) Policy inference taking too long 3) CPU starvation"
-            )
+                logging.warning(
+                    f"[{phase_name}] Record loop is running slower ({1 / dt_s:.1f} Hz) than the target FPS ({fps} Hz). Dataset frames might be dropped and robot control might be unstable. Common causes are: 1) Camera FPS not keeping up 2) Policy inference taking too long 3) CPU starvation"
+                )
 
         precise_sleep(max(sleep_time_s, 0.0))
 
         timestamp = time.perf_counter() - start_episode_t
+        if not banner_printed and timestamp >= recording_banner_delay_s:
+            emit_phase_banner()
+            banner_printed = True
 
 
 @parser.wrap()
@@ -465,6 +503,8 @@ def record(cfg: RecordConfig) -> LeRobotDataset:
 
     dataset = None
     listener = None
+    exit_code = 0
+    completed_successfully = False
 
     try:
         if cfg.resume:
@@ -531,6 +571,21 @@ def record(cfg: RecordConfig) -> LeRobotDataset:
 
         with VideoEncodingManager(dataset):
             recorded_episodes = 0
+            if cfg.dataset.reset_time_s > 0 and not events["stop_recording"]:
+                log_say("Initial reset period", cfg.play_sounds)
+                record_loop(
+                    robot=robot,
+                    events=events,
+                    fps=cfg.dataset.fps,
+                    teleop_action_processor=teleop_action_processor,
+                    robot_action_processor=robot_action_processor,
+                    robot_observation_processor=robot_observation_processor,
+                    teleop=teleop,
+                    control_time_s=cfg.dataset.reset_time_s,
+                    single_task=cfg.dataset.single_task,
+                    phase_name=f"reset before episode {dataset.num_episodes}",
+                    display_data=cfg.display_data,
+                )
             while recorded_episodes < cfg.dataset.num_episodes and not events["stop_recording"]:
                 log_say(f"Recording episode {dataset.num_episodes}", cfg.play_sounds)
                 record_loop(
@@ -547,6 +602,7 @@ def record(cfg: RecordConfig) -> LeRobotDataset:
                     dataset=dataset,
                     control_time_s=cfg.dataset.episode_time_s,
                     single_task=cfg.dataset.single_task,
+                    phase_name=f"recording episode {dataset.num_episodes}",
                     display_data=cfg.display_data,
                     display_compressed_images=display_compressed_images,
                 )
@@ -568,6 +624,7 @@ def record(cfg: RecordConfig) -> LeRobotDataset:
                         teleop=teleop,
                         control_time_s=cfg.dataset.reset_time_s,
                         single_task=cfg.dataset.single_task,
+                        phase_name=f"reset before episode {dataset.num_episodes + 1}",
                         display_data=cfg.display_data,
                     )
 
@@ -580,24 +637,30 @@ def record(cfg: RecordConfig) -> LeRobotDataset:
 
                 dataset.save_episode()
                 recorded_episodes += 1
+        completed_successfully = True
+    except KeyboardInterrupt:
+        pass
+    except Exception as exc:
+        exit_code = 1
+        logging.exception("Recording stopped due to device/runtime error: %s", exc)
     finally:
         log_say("Stop recording", cfg.play_sounds, blocking=True)
 
         if dataset:
             dataset.finalize()
 
-        if robot.is_connected:
-            robot.disconnect()
-        if teleop and teleop.is_connected:
-            teleop.disconnect()
+        safe_disconnect_devices(robot, teleop)
 
         if not is_headless() and listener:
             listener.stop()
 
-        if cfg.dataset.push_to_hub:
+        if completed_successfully and dataset and cfg.dataset.push_to_hub:
             dataset.push_to_hub(tags=cfg.dataset.tags, private=cfg.dataset.private)
 
         log_say("Exiting", cfg.play_sounds)
+
+    if exit_code:
+        raise SystemExit(exit_code)
     return dataset
 
 

@@ -227,7 +227,9 @@ lerobot-info="lerobot.scripts.lerobot_info:main"
 lerobot-find-joint-limits="lerobot.scripts.lerobot_find_joint_limits:main"
 lerobot-imgtransform-viz="lerobot.scripts.lerobot_imgtransform_viz:main"
 lerobot-edit-dataset="lerobot.scripts.lerobot_edit_dataset:main"
+lerobot-swap-camera-names="lerobot.scripts.lerobot_swap_camera_names:main"
 lerobot-setup-can="lerobot.scripts.lerobot_setup_can:main"
+lerobot-v4l2-camera-settings="lerobot.scripts.lerobot_v4l2_camera_settings:main"
 
 # ---------------- Tool Configurations ----------------
 [tool.setuptools.package-data]

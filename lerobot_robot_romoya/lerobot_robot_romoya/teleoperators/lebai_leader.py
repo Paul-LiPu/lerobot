@@ -48,6 +48,7 @@ class LebaiLeader(Teleoperator):
         self.do1_target = 0.0
         self._gripper_open = True
         self._suction_on = False
+        self._suction_stop_deadline: float | None = None
         self.logs = {}
 
     @property
@@ -92,7 +93,7 @@ class LebaiLeader(Teleoperator):
         if callable(start_sys):
             start_sys()
         if self.config.enter_teach_mode_on_connect:
-            self.teach_mode()
+            self._enter_teach_mode_with_retry()
         if PYNPUT_AVAILABLE:
             self.keyboard_listener = keyboard.Listener(on_press=self._on_press, on_release=self._on_release)
             self.keyboard_listener.start()
@@ -131,13 +132,21 @@ class LebaiLeader(Teleoperator):
             self._gripper_open = not self._gripper_open
             self.gripper_target = 100.0 if self._gripper_open else 0.0
         elif button == mouse.Button.right:
-            self._suction_on = not self._suction_on
-            if self._suction_on:
+            now = time.monotonic()
+            if self._suction_stop_deadline is not None and now < self._suction_stop_deadline:
+                self._suction_stop_deadline = None
+                self._suction_on = True
                 self.do0_target = 1.0
                 self.do1_target = 1.0
-            else:
+            elif self._suction_on:
+                self._suction_stop_deadline = now + 1.0
                 self.do0_target = 0.0
-                self.do1_target = 0.0
+                self.do1_target = 1.0
+            else:
+                self._suction_stop_deadline = None
+                self._suction_on = True
+                self.do0_target = 1.0
+                self.do1_target = 1.0
 
     def _on_scroll(self, x, y, dx, dy) -> None:
         del x, y, dx, dy
@@ -147,27 +156,15 @@ class LebaiLeader(Teleoperator):
         while not self.event_queue.empty():
             key, is_pressed = self.event_queue.get_nowait()
             self.current_pressed[key] = is_pressed
-            if not is_pressed:
-                continue
 
-            if key == keyboard.Key.right:
-                self.gripper_target = 100.0
-                self._gripper_open = True
-            elif key == keyboard.Key.left:
-                self.gripper_target = 0.0
-                self._gripper_open = False
-            elif key == keyboard.KeyCode.from_char("1"):
-                self.do0_target = 1.0
-                self.do1_target = 1.0
-                self._suction_on = True
-            elif key == keyboard.KeyCode.from_char("2"):
-                self.do0_target = 0.0
-                self.do1_target = 1.0
-                self._suction_on = False
-            elif key == keyboard.KeyCode.from_char("3"):
-                self.do0_target = 0.0
-                self.do1_target = 0.0
-                self._suction_on = False
+    def _update_suction_sequence(self) -> None:
+        if self._suction_stop_deadline is None:
+            return
+        if time.monotonic() >= self._suction_stop_deadline:
+            self._suction_stop_deadline = None
+            self._suction_on = False
+            self.do0_target = 0.0
+            self.do1_target = 0.0
 
     def get_action(self) -> RobotAction:
         if not self.is_connected:
@@ -175,6 +172,7 @@ class LebaiLeader(Teleoperator):
 
         before_read_t = time.perf_counter()
         self._drain_pressed_keys()
+        self._update_suction_sequence()
         kin_data = self.arm.get_kin_data()
         action = {}
         joint_positions = list(get_field(kin_data, "actual_joint_pose"))
@@ -196,6 +194,20 @@ class LebaiLeader(Teleoperator):
         teach_mode = getattr(self.arm, "teach_mode", None)
         if callable(teach_mode):
             teach_mode()
+
+    def _enter_teach_mode_with_retry(self, attempts: int = 10, retry_delay_s: float = 0.5) -> None:
+        last_error: Exception | None = None
+        for _ in range(attempts):
+            try:
+                self.teach_mode()
+                return
+            except Exception as exc:
+                last_error = exc
+                if "Moving" not in str(exc):
+                    raise
+                time.sleep(retry_delay_s)
+
+        logger.warning("Failed to enter teach mode on connect after retries: %s", last_error)
 
     def end_teach_mode(self) -> None:
         end_teach_mode = getattr(self.arm, "end_teach_mode", None)
