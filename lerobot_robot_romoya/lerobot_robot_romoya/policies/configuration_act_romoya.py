@@ -133,20 +133,33 @@ class ACTRomoyaConfig(ACTConfig):
 
         raw_state_feature = self.input_features[OBS_STATE]
         raw_action_feature = self.output_features[ACTION]
-        if raw_state_feature.shape[0] != len(self.raw_observation_state_feature_names):
-            raise ValueError(
-                "Dataset observation.state shape does not match act_romoya raw_observation_state_feature_names."
-            )
-        if raw_action_feature.shape[0] != len(self.raw_action_feature_names):
-            raise ValueError("Dataset action shape does not match act_romoya raw_action_feature_names.")
+        raw_state_dim = len(self.raw_observation_state_feature_names)
+        transformed_state_dim = len(self.state_feature_names_to_keep)
+        raw_action_dim = len(self.raw_action_feature_names)
+        transformed_action_dim = len(self.transformed_action_names)
 
-        self.input_features[OBS_STATE] = PolicyFeature(
-            type=FeatureType.STATE,
-            shape=(len(self.state_feature_names_to_keep),),
-        )
-        self.output_features[ACTION] = PolicyFeature(
-            type=FeatureType.ACTION,
-            shape=(len(self.transformed_action_names),),
-        )
+        if raw_state_feature.shape[0] not in (raw_state_dim, transformed_state_dim):
+            raise ValueError(
+                "Dataset observation.state shape does not match act_romoya raw or transformed state dimensions."
+            )
+        if raw_action_feature.shape[0] not in (raw_action_dim, transformed_action_dim):
+            raise ValueError(
+                "Dataset action shape does not match act_romoya raw or transformed action dimensions."
+            )
+
+        # When creating a policy from dataset metadata we receive raw dataset shapes and need
+        # to shrink them to the transformed Romoya state/action dimensions. When loading a
+        # saved checkpoint config, the transformed dimensions are already stored and should be
+        # preserved as-is.
+        if raw_state_feature.shape[0] == raw_state_dim:
+            self.input_features[OBS_STATE] = PolicyFeature(
+                type=FeatureType.STATE,
+                shape=(transformed_state_dim,),
+            )
+        if raw_action_feature.shape[0] == raw_action_dim:
+            self.output_features[ACTION] = PolicyFeature(
+                type=FeatureType.ACTION,
+                shape=(transformed_action_dim,),
+            )
 
         super().validate_features()
