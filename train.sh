@@ -17,11 +17,11 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONFIG_PATH="${TRAIN_CONFIG_PATH:-${SCRIPT_DIR}/train_act_romoya_config.json}"
 
 DEFAULT_DATASET_NAME="lebai-suction-plate"
-DEFAULT_POLICY_REPO_NAME="act_sjadj_lebai-suction-plate"
-DEFAULT_OUTPUT_NAME="act_sjadj_lebai-suction-plate"
+DEFAULT_POLICY_REPO_NAME="act_sjadj_lebai-suction-plate_side"
+DEFAULT_OUTPUT_NAME="act_sjadj_lebai-suction-plate_side"
 DEFAULT_POLICY_TYPE="act_romoya"
 DEFAULT_DEVICE="cuda"
-DEFAULT_STEPS=100000
+DEFAULT_STEPS=40000
 DEFAULT_BATCH_SIZE=56
 DEFAULT_WANDB_ENABLE="true"
 

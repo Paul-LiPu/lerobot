@@ -10,7 +10,7 @@ set -euo pipefail
 #   REPO_DIR=/workspace/lerobot BRANCH=customized bash bootstrap_train_instance.sh
 
 REPO_URL="${REPO_URL:-https://github.com/Paul-LiPu/lerobot.git}"
-REPO_DIR="${REPO_DIR:-${HOME}/lerobot}"
+REPO_DIR="${REPO_DIR:-/workspace/lerobot}"
 BRANCH="${BRANCH:-customized}"
 TRAIN_CONFIG_PATH="${TRAIN_CONFIG_PATH:-${REPO_DIR}/train_act_side_config.json}"
 
