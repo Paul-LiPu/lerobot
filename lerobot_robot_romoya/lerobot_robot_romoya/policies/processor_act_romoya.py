@@ -8,9 +8,14 @@ from torch import Tensor
 
 from lerobot.configs.types import FeatureType, PipelineFeatureType, PolicyFeature
 from lerobot.policies.act.processor_act import make_act_pre_post_processors
-from lerobot.processor import PolicyAction, PolicyProcessorPipeline, ProcessorStep, ProcessorStepRegistry
+from lerobot.processor import (
+    PolicyAction,
+    PolicyProcessorPipeline,
+    ProcessorStep,
+    ProcessorStepRegistry,
+    TransitionKey,
+)
 from lerobot.processor.converters import policy_action_to_transition, transition_to_policy_action
-from lerobot.processor.core import TransitionKey
 from lerobot.utils.constants import ACTION, OBS_STATE, POLICY_POSTPROCESSOR_DEFAULT_NAME, POLICY_PREPROCESSOR_DEFAULT_NAME
 
 from .configuration_act_romoya import ACTRomoyaConfig
