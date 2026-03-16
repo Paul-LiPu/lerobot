@@ -1,6 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Bootstrap a fresh cloud instance for Romoya LeRobot training.
+#
+# One-line download and run:
+#   bash -c "$(curl -fsSL https://raw.githubusercontent.com/Paul-LiPu/lerobot/customized/bootstrap_train_instance.sh)"
+#
+# Optional overrides:
+#   REPO_DIR=/workspace/lerobot BRANCH=customized bash bootstrap_train_instance.sh
+
 REPO_URL="${REPO_URL:-https://github.com/Paul-LiPu/lerobot.git}"
 REPO_DIR="${REPO_DIR:-${HOME}/lerobot}"
 BRANCH="${BRANCH:-customized}"
