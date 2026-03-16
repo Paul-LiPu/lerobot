@@ -18,7 +18,7 @@ from lerobot.processor import (
 from lerobot.processor.converters import policy_action_to_transition, transition_to_policy_action
 from lerobot.utils.constants import ACTION, OBS_STATE, POLICY_POSTPROCESSOR_DEFAULT_NAME, POLICY_PREPROCESSOR_DEFAULT_NAME
 
-from .configuration_act_romoya import ACTRomoyaConfig
+from .configuration_act_romoya import ABSOLUTE_ACTION_MODE, ACTRomoyaConfig, DELTA_ACTION_MODE
 
 
 @dataclass
@@ -95,24 +95,33 @@ def _transform_stats(config: ACTRomoyaConfig, dataset_stats: dict[str, dict[str,
     stats[OBS_STATE] = _slice_stat_vector(stats[OBS_STATE], state_indices)
 
     transformed_action_stats = {"mean": [], "std": [], "min": [], "max": []}
-    for name in config.joint_action_names:
-        delta_stats = _derive_delta_stats(
-            dataset_stats[ACTION],
-            action_name_to_index[name],
-            dataset_stats[OBS_STATE],
-            state_name_to_index[name],
-        )
-        for stat_name, stat_value in delta_stats.items():
-            transformed_action_stats[stat_name].append(stat_value)
+    if config.action_mode == DELTA_ACTION_MODE:
+        for name in config.joint_action_names:
+            delta_stats = _derive_delta_stats(
+                dataset_stats[ACTION],
+                action_name_to_index[name],
+                dataset_stats[OBS_STATE],
+                state_name_to_index[name],
+            )
+            for stat_name, stat_value in delta_stats.items():
+                transformed_action_stats[stat_name].append(stat_value)
 
-    gripper_delta_stats = _derive_delta_stats(
-        dataset_stats[ACTION],
-        action_name_to_index[config.gripper_action_name],
-        dataset_stats[OBS_STATE],
-        state_name_to_index[config.gripper_action_name],
-    )
-    for stat_name, stat_value in gripper_delta_stats.items():
-        transformed_action_stats[stat_name].append(stat_value)
+        gripper_delta_stats = _derive_delta_stats(
+            dataset_stats[ACTION],
+            action_name_to_index[config.gripper_action_name],
+            dataset_stats[OBS_STATE],
+            state_name_to_index[config.gripper_action_name],
+        )
+        for stat_name, stat_value in gripper_delta_stats.items():
+            transformed_action_stats[stat_name].append(stat_value)
+    elif config.action_mode == ABSOLUTE_ACTION_MODE:
+        absolute_action_names = [*config.joint_action_names, config.gripper_action_name]
+        for name in absolute_action_names:
+            action_idx = action_name_to_index[name]
+            for stat_name in transformed_action_stats:
+                transformed_action_stats[stat_name].append(float(dataset_stats[ACTION][stat_name][action_idx]))
+    else:
+        raise ValueError(f"Unsupported action_mode: {config.action_mode}")
 
     for name in config.do_action_names:
         action_idx = action_name_to_index[name]
@@ -126,6 +135,7 @@ def _transform_stats(config: ACTRomoyaConfig, dataset_stats: dict[str, dict[str,
 @dataclass
 @ProcessorStepRegistry.register(name="act_romoya_preprocess_v1")
 class ACTRomoyaPreprocessStep(ProcessorStep):
+    action_mode: str
     state_feature_names_to_keep: list[str]
     raw_observation_state_feature_names: list[str]
     raw_action_feature_names: list[str]
@@ -156,18 +166,25 @@ class ACTRomoyaPreprocessStep(ProcessorStep):
 
         action = transition.get(TransitionKey.ACTION)
         if action is not None and self._context.latest_observation_state is not None:
-            raw_state = self._context.latest_observation_state.to(device=action.device, dtype=action.dtype)
-            if action.ndim == raw_state.ndim + 1:
-                raw_state = raw_state.unsqueeze(-2)
-            joint_delta = action[..., self._joint_action_indices] - raw_state[..., self._joint_state_indices]
-            gripper_delta = action[..., [self._gripper_action_index]] - raw_state[..., [self._gripper_state_index]]
             do_values = action[..., self._do_action_indices]
-            transition[TransitionKey.ACTION] = torch.cat([joint_delta, gripper_delta, do_values], dim=-1)
+            if self.action_mode == DELTA_ACTION_MODE:
+                raw_state = self._context.latest_observation_state.to(device=action.device, dtype=action.dtype)
+                if action.ndim == raw_state.ndim + 1:
+                    raw_state = raw_state.unsqueeze(-2)
+                joint_values = action[..., self._joint_action_indices] - raw_state[..., self._joint_state_indices]
+                gripper_values = action[..., [self._gripper_action_index]] - raw_state[..., [self._gripper_state_index]]
+            elif self.action_mode == ABSOLUTE_ACTION_MODE:
+                joint_values = action[..., self._joint_action_indices]
+                gripper_values = action[..., [self._gripper_action_index]]
+            else:
+                raise ValueError(f"Unsupported action_mode: {self.action_mode}")
+            transition[TransitionKey.ACTION] = torch.cat([joint_values, gripper_values, do_values], dim=-1)
 
         return transition
 
     def get_config(self) -> dict[str, Any]:
         return {
+            "action_mode": self.action_mode,
             "state_feature_names_to_keep": self.state_feature_names_to_keep,
             "raw_observation_state_feature_names": self.raw_observation_state_feature_names,
             "raw_action_feature_names": self.raw_action_feature_names,
@@ -195,6 +212,7 @@ class ACTRomoyaPreprocessStep(ProcessorStep):
 @dataclass
 @ProcessorStepRegistry.register(name="act_romoya_postprocess_v1")
 class ACTRomoyaPostprocessStep(ProcessorStep):
+    action_mode: str
     raw_observation_state_feature_names: list[str]
     raw_action_feature_names: list[str]
     joint_action_names: list[str]
@@ -234,13 +252,20 @@ class ACTRomoyaPostprocessStep(ProcessorStep):
             *action.shape[:-1], len(self.raw_action_feature_names), device=action.device, dtype=action.dtype
         )
 
-        joint_delta = action[..., : len(self.joint_action_names)]
-        gripper_delta = action[..., len(self.joint_action_names) : len(self.joint_action_names) + 1]
+        joint_values = action[..., : len(self.joint_action_names)]
+        gripper_values = action[..., len(self.joint_action_names) : len(self.joint_action_names) + 1]
         do_values = action[..., len(self.joint_action_names) + 1 :]
 
-        reconstructed[..., self._joint_action_indices] = raw_state[..., self._joint_state_indices] + joint_delta
+        if self.action_mode == DELTA_ACTION_MODE:
+            reconstructed[..., self._joint_action_indices] = raw_state[..., self._joint_state_indices] + joint_values
+            gripper_target = raw_state[..., self._gripper_state_index] + gripper_values.squeeze(-1)
+        elif self.action_mode == ABSOLUTE_ACTION_MODE:
+            reconstructed[..., self._joint_action_indices] = joint_values
+            gripper_target = gripper_values.squeeze(-1)
+        else:
+            raise ValueError(f"Unsupported action_mode: {self.action_mode}")
         reconstructed[..., self._gripper_action_index] = torch.clamp(
-            raw_state[..., self._gripper_state_index] + gripper_delta.squeeze(-1),
+            gripper_target,
             min=self.gripper_min,
             max=self.gripper_max,
         )
@@ -261,6 +286,7 @@ class ACTRomoyaPostprocessStep(ProcessorStep):
 
     def get_config(self) -> dict[str, Any]:
         return {
+            "action_mode": self.action_mode,
             "raw_observation_state_feature_names": self.raw_observation_state_feature_names,
             "raw_action_feature_names": self.raw_action_feature_names,
             "joint_action_names": self.joint_action_names,
@@ -295,6 +321,7 @@ def make_act_romoya_pre_post_processors(
     preprocessor, postprocessor = make_act_pre_post_processors(config=config, dataset_stats=transformed_stats)
 
     preprocess_step = ACTRomoyaPreprocessStep(
+        action_mode=config.action_mode,
         state_feature_names_to_keep=config.state_feature_names_to_keep,
         raw_observation_state_feature_names=config.raw_observation_state_feature_names,
         raw_action_feature_names=config.raw_action_feature_names,
@@ -303,6 +330,7 @@ def make_act_romoya_pre_post_processors(
         do_action_names=config.do_action_names,
     )
     postprocess_step = ACTRomoyaPostprocessStep(
+        action_mode=config.action_mode,
         raw_observation_state_feature_names=config.raw_observation_state_feature_names,
         raw_action_feature_names=config.raw_action_feature_names,
         joint_action_names=config.joint_action_names,

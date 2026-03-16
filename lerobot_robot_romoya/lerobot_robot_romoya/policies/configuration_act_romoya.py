@@ -55,6 +55,9 @@ DEFAULT_ROMOYA_ACTION_NAMES = [
     "DO_1",
 ]
 
+DELTA_ACTION_MODE = "delta_joint_gripper_do1"
+ABSOLUTE_ACTION_MODE = "absolute_joint_gripper_do1"
+
 
 @ACTConfig.register_subclass("act_romoya")
 @dataclass
@@ -73,7 +76,7 @@ class ACTRomoyaConfig(ACTConfig):
             "DO_1",
         ]
     )
-    action_mode: str = "delta_joint_gripper_do1"
+    action_mode: str = DELTA_ACTION_MODE
     joint_action_names: list[str] = field(
         default_factory=lambda: [
             "joint1.pos",
@@ -103,18 +106,26 @@ class ACTRomoyaConfig(ACTConfig):
 
     @property
     def transformed_action_names(self) -> list[str]:
-        return [
-            *(f"delta_{name}" for name in self.joint_action_names),
-            f"delta_{self.gripper_action_name}",
-            *self.do_action_names,
-        ]
+        if self.action_mode == DELTA_ACTION_MODE:
+            return [
+                *(f"delta_{name}" for name in self.joint_action_names),
+                f"delta_{self.gripper_action_name}",
+                *self.do_action_names,
+            ]
+        if self.action_mode == ABSOLUTE_ACTION_MODE:
+            return [
+                *self.joint_action_names,
+                self.gripper_action_name,
+                *self.do_action_names,
+            ]
+        raise ValueError(f"Unsupported action_mode: {self.action_mode}")
 
     def validate_features(self) -> None:
         if OBS_STATE not in (self.input_features or {}):
             raise ValueError("act_romoya requires observation.state in input_features.")
         if ACTION not in (self.output_features or {}):
             raise ValueError("act_romoya requires action in output_features.")
-        if self.action_mode != "delta_joint_gripper_do1":
+        if self.action_mode not in {DELTA_ACTION_MODE, ABSOLUTE_ACTION_MODE}:
             raise ValueError(f"Unsupported action_mode: {self.action_mode}")
 
         missing_state = set(self.state_feature_names_to_keep) - set(self.raw_observation_state_feature_names)
