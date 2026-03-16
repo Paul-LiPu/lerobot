@@ -32,6 +32,8 @@ ensure_cmd uv "Install uv first: https://docs.astral.sh/uv/getting-started/insta
 
 echo "==> Installing CLI tools"
 python3 -m pip install --upgrade "huggingface_hub[cli]" wandb
+ensure_cmd hf "Install the Hugging Face CLI with: python3 -m pip install --upgrade 'huggingface_hub[cli]'"
+ensure_cmd wandb "Install Weights & Biases with: python3 -m pip install --upgrade wandb"
 
 if [[ ! -d "${REPO_DIR}/.git" ]]; then
   echo "==> Cloning repo to ${REPO_DIR}"
@@ -53,7 +55,7 @@ uv sync --extra romoya
 
 echo "==> Checking Hugging Face login"
 if ! hf auth whoami >/dev/null 2>&1; then
-  echo "Hugging Face login required."
+  echo "Hugging Face login required. Running: hf auth login"
   hf auth login
 fi
 
