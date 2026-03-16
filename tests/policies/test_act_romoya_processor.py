@@ -80,9 +80,28 @@ def test_act_romoya_postprocessor_reconstructs_absolute_action():
         "observation.images.wrist": torch.zeros(1, 3, 360, 640, dtype=torch.float32),
     }
     _ = preprocessor(observation)
-    action = torch.tensor([[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 5.0, 10.0]], dtype=torch.float32)
+    action = torch.tensor([[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 5.0, 0.6]], dtype=torch.float32)
     reconstructed = postprocessor(action)
     torch.testing.assert_close(
         reconstructed[0],
         torch.tensor([11.0, 22.0, 33.0, 44.0, 55.0, 66.0, 75.0, 80.0, 1.0, 1.0]),
+    )
+
+
+def test_act_romoya_postprocessor_thresholds_do_without_sigmoid():
+    cfg = _make_config()
+    preprocessor, postprocessor = make_pre_post_processors(cfg, dataset_stats=_make_stats())
+    observation = {
+        OBS_STATE: torch.tensor(
+            [[10.0, 20.0, 30.0, 40.0, 50.0, 60.0, 70.0, 80.0, 0.0, 1.0] + [0.0] * 24],
+            dtype=torch.float32,
+        ),
+        "observation.images.wrist": torch.zeros(1, 3, 360, 640, dtype=torch.float32),
+    }
+    _ = preprocessor(observation)
+    action = torch.tensor([[0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.4]], dtype=torch.float32)
+    reconstructed = postprocessor(action)
+    torch.testing.assert_close(
+        reconstructed[0],
+        torch.tensor([10.0, 20.0, 30.0, 40.0, 50.0, 60.0, 70.0, 80.0, 0.0, 0.0]),
     )

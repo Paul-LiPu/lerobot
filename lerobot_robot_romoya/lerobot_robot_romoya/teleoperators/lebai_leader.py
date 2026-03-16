@@ -43,7 +43,7 @@ class LebaiLeader(Teleoperator):
         self.current_pressed = {}
         self.keyboard_listener = None
         self.mouse_listener = None
-        self.gripper_target = 100.0
+        self.gripper_target = float(self.config.gripper_open_position)
         self.do0_target = 0.0
         self.do1_target = 0.0
         self._gripper_open = True
@@ -130,7 +130,7 @@ class LebaiLeader(Teleoperator):
             return
         if button == mouse.Button.left:
             self._gripper_open = not self._gripper_open
-            self.gripper_target = 100.0 if self._gripper_open else 0.0
+            self.gripper_target = float(self.config.gripper_open_position) if self._gripper_open else 0.0
         elif button == mouse.Button.right:
             now = time.monotonic()
             if self._suction_stop_deadline is not None and now < self._suction_stop_deadline:

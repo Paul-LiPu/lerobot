@@ -1,8 +1,20 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Usage:
+#   bash train.sh
+#   bash train.sh my-dataset
+#   bash train.sh my-dataset my-policy
+#   bash train.sh my-dataset my-policy my-run-name
+#
+# Notes:
+#   - Arg 1: dataset name or full repo id
+#   - Arg 2: policy repo name or full repo id
+#   - Arg 3: local output/job name
+#   - HF_USER is detected automatically from `hf auth whoami`
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CONFIG_PATH="${SCRIPT_DIR}/train_act_romoya_config.json"
+CONFIG_PATH="${TRAIN_CONFIG_PATH:-${SCRIPT_DIR}/train_act_romoya_config.json}"
 
 DEFAULT_DATASET_NAME="lebai-suction-plate"
 DEFAULT_POLICY_REPO_NAME="act_sjadj_lebai-suction-plate"
@@ -10,7 +22,7 @@ DEFAULT_OUTPUT_NAME="act_sjadj_lebai-suction-plate"
 DEFAULT_POLICY_TYPE="act_romoya"
 DEFAULT_DEVICE="cuda"
 DEFAULT_STEPS=100000
-DEFAULT_BATCH_SIZE=32
+DEFAULT_BATCH_SIZE=56
 DEFAULT_WANDB_ENABLE="true"
 
 DATASET_NAME="${1:-${DEFAULT_DATASET_NAME}}"

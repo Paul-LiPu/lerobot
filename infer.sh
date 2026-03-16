@@ -2,19 +2,27 @@
 set -euo pipefail
 
 # Usage:
-#   bash record.sh
-#   bash record.sh my-dataset
-#   bash record.sh my-dataset "Grab the black cube"
+#   bash infer.sh
+#   bash infer.sh my-eval-dataset
+#   bash infer.sh my-eval-dataset "pick up the plate using suction cup"
+#   bash infer.sh my-eval-dataset "pick up the plate using suction cup" my-policy
 #
 # Notes:
-#   - Arg 1: dataset name
+#   - Arg 1: eval dataset name or full repo id
 #   - Arg 2: task string
+#   - Arg 3: policy name or full repo id
 #   - HF_USER is detected automatically from `hf auth whoami`
 
-DEFAULT_DATASET_NAME="record-test"
-DEFAULT_SINGLE_TASK="Grab the black cube"
-DATASET_NAME="${1:-${DEFAULT_DATASET_NAME}}"
+DEFAULT_EVAL_DATASET_NAME="eval_lebai_act_romoya_sunction_plate"
+DEFAULT_SINGLE_TASK="pick up the plate using suction cup"
+DEFAULT_POLICY_NAME="act_sjadj_lebai-suction-plate"
+DEFAULT_NUM_EPISODES=10
+DEFAULT_EPISODE_TIME_S=60
+DEFAULT_RESET_TIME_S=60
+
+EVAL_DATASET_NAME="${1:-${DEFAULT_EVAL_DATASET_NAME}}"
 SINGLE_TASK="${2:-${DEFAULT_SINGLE_TASK}}"
+POLICY_NAME="${3:-${DEFAULT_POLICY_NAME}}"
 
 HF_USER=$(
   hf auth whoami \
@@ -27,22 +35,18 @@ if [[ -z "${HF_USER}" ]]; then
   exit 1
 fi
 
-DATASET_REPO_ID="${HF_USER}/${DATASET_NAME}"
-LOCAL_DATASET_DIR="${HOME}/.cache/huggingface/lerobot/${DATASET_REPO_ID}"
-LOCAL_DATASET_META_DIR="${LOCAL_DATASET_DIR}/meta"
-TMP_CAMERA_SETTINGS="$(mktemp "${TMPDIR:-/tmp}/camera-settings.XXXXXX.json")"
+if [[ "${EVAL_DATASET_NAME}" == */* ]]; then
+  DATASET_REPO_ID="${EVAL_DATASET_NAME}"
+else
+  DATASET_REPO_ID="${HF_USER}/${EVAL_DATASET_NAME}"
+fi
 
-cleanup() {
-  rm -f "${TMP_CAMERA_SETTINGS}"
-}
-trap cleanup EXIT
+if [[ "${POLICY_NAME}" == */* ]]; then
+  POLICY_PATH="${POLICY_NAME}"
+else
+  POLICY_PATH="${HF_USER}/${POLICY_NAME}"
+fi
 
-uv run lerobot-v4l2-camera-settings save \
-  --device /dev/cam_wrist \
-  --device /dev/cam_top \
-  --device /dev/cam_side \
-  --output "${TMP_CAMERA_SETTINGS}"
-  # --resume=true \
 uv run --extra romoya lerobot-record \
   --dataset.fps=30 \
   --robot.type=romoya_lebai_follower \
@@ -60,17 +64,10 @@ uv run --extra romoya lerobot-record \
   --teleop.id=lebai_leader_arm \
   --display_data=false \
   --dataset.repo_id="${DATASET_REPO_ID}" \
-  --dataset.num_episodes=10 \
-  --dataset.episode_time_s=120 \
-  --dataset.reset_time_s=120 \
   --dataset.single_task="${SINGLE_TASK}" \
+  --dataset.num_episodes="${DEFAULT_NUM_EPISODES}" \
+  --dataset.episode_time_s="${DEFAULT_EPISODE_TIME_S}" \
+  --dataset.reset_time_s="${DEFAULT_RESET_TIME_S}" \
   --dataset.streaming_encoding=true \
-  --dataset.encoder_threads=4
-
-mkdir -p "${LOCAL_DATASET_META_DIR}"
-cp "${TMP_CAMERA_SETTINGS}" "${LOCAL_DATASET_META_DIR}/camera-settings.json"
-hf upload \
-  "${DATASET_REPO_ID}" \
-  "${LOCAL_DATASET_META_DIR}/camera-settings.json" \
-  "meta/camera-settings.json" \
-  --repo-type dataset
+  --dataset.encoder_threads=4 \
+  --policy.path="${POLICY_PATH}"

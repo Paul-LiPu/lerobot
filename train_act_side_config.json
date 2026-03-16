@@ -10,50 +10,35 @@
           "weight": 1.0,
           "type": "ColorJitter",
           "kwargs": {
-            "brightness": [
-              0.9,
-              1.1
-            ]
+            "brightness": [0.9, 1.1]
           }
         },
         "contrast": {
           "weight": 1.0,
           "type": "ColorJitter",
           "kwargs": {
-            "contrast": [
-              0.9,
-              1.1
-            ]
+            "contrast": [0.9, 1.1]
           }
         },
         "saturation": {
           "weight": 0.5,
           "type": "ColorJitter",
           "kwargs": {
-            "saturation": [
-              0.9,
-              1.1
-            ]
+            "saturation": [0.9, 1.1]
           }
         },
         "hue": {
           "weight": 0.25,
           "type": "ColorJitter",
           "kwargs": {
-            "hue": [
-              -0.02,
-              0.02
-            ]
+            "hue": [-0.02, 0.02]
           }
         },
         "sharpness": {
           "weight": 0.5,
           "type": "SharpnessJitter",
           "kwargs": {
-            "sharpness": [
-              0.9,
-              1.1
-            ]
+            "sharpness": [0.9, 1.1]
           }
         }
       }
@@ -62,6 +47,16 @@
   "policy": {
     "type": "act_romoya",
     "device": "cuda",
+    "input_features": {
+      "observation.state": {
+        "type": "STATE",
+        "shape": [8]
+      },
+      "observation.images.side": {
+        "type": "VISUAL",
+        "shape": [3, 360, 640]
+      }
+    },
     "repo_id": "SET_ME/POLICY"
   },
   "batch_size": 8,

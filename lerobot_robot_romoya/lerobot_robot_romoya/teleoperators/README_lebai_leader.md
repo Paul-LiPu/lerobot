@@ -11,7 +11,7 @@ Additional keyboard-controlled action fields:
 - `DO_1`
 
 Key mapping:
-- `Right Arrow`: `gripper.pos = 100`
+- `Right Arrow`: `gripper.pos = 99`
 - `Left Arrow`: `gripper.pos = 0`
 - `1`: `DO_0 = 1`, `DO_1 = 1`
 - `2`: `DO_0 = 0`, `DO_1 = 1`

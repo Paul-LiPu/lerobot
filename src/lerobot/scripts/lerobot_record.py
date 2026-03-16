@@ -75,6 +75,9 @@ from pathlib import Path
 from pprint import pformat
 from typing import Any
 
+from huggingface_hub import hf_hub_download
+from huggingface_hub.constants import CONFIG_NAME
+
 from lerobot.cameras import (  # noqa: F401
     CameraConfig,  # noqa: F401
 )
@@ -132,7 +135,7 @@ from lerobot.teleoperators import (  # noqa: F401
     unitree_g1,
 )
 from lerobot.teleoperators.keyboard.teleop_keyboard import KeyboardTeleop
-from lerobot.utils.constants import ACTION, OBS_STR
+from lerobot.utils.constants import ACTION, OBS_STR, POLICY_POSTPROCESSOR_DEFAULT_NAME, POLICY_PREPROCESSOR_DEFAULT_NAME
 from lerobot.utils.control_utils import (
     init_keyboard_listener,
     is_headless,
@@ -148,6 +151,33 @@ from lerobot.utils.utils import (
     log_say,
 )
 from lerobot.utils.visualization_utils import init_rerun, log_rerun_data
+
+
+def _resolve_pretrained_artifact_paths(pretrained_path: str | Path) -> dict[str, Path]:
+    pretrained_path = Path(pretrained_path) if isinstance(pretrained_path, Path) else Path(str(pretrained_path))
+    if pretrained_path.is_dir():
+        model_dir = pretrained_path.resolve()
+        return {
+            "model_dir": model_dir,
+            "config": model_dir / CONFIG_NAME,
+            "preprocessor": model_dir / f"{POLICY_PREPROCESSOR_DEFAULT_NAME}.json",
+            "postprocessor": model_dir / f"{POLICY_POSTPROCESSOR_DEFAULT_NAME}.json",
+        }
+
+    repo_id = str(pretrained_path)
+    config_path = Path(hf_hub_download(repo_id=repo_id, filename=CONFIG_NAME))
+    preprocessor_path = Path(
+        hf_hub_download(repo_id=repo_id, filename=f"{POLICY_PREPROCESSOR_DEFAULT_NAME}.json")
+    )
+    postprocessor_path = Path(
+        hf_hub_download(repo_id=repo_id, filename=f"{POLICY_POSTPROCESSOR_DEFAULT_NAME}.json")
+    )
+    return {
+        "model_dir": config_path.parent,
+        "config": config_path,
+        "preprocessor": preprocessor_path,
+        "postprocessor": postprocessor_path,
+    }
 
 
 def safe_disconnect_devices(robot: Robot | None, teleop: Teleoperator | None) -> None:
@@ -544,10 +574,17 @@ def record(cfg: RecordConfig) -> LeRobotDataset:
             )
 
         # Load pretrained policy
-        policy = None if cfg.policy is None else make_policy(cfg.policy, ds_meta=dataset.meta)
         preprocessor = None
         postprocessor = None
+        policy = None
         if cfg.policy is not None:
+            resolved_policy_paths = _resolve_pretrained_artifact_paths(cfg.policy.pretrained_path)
+            logging.info("Policy requested path: %s", cfg.policy.pretrained_path)
+            logging.info("Policy resolved local model dir: %s", resolved_policy_paths["model_dir"])
+            logging.info("Policy resolved config: %s", resolved_policy_paths["config"])
+            logging.info("Policy resolved preprocessor config: %s", resolved_policy_paths["preprocessor"])
+            logging.info("Policy resolved postprocessor config: %s", resolved_policy_paths["postprocessor"])
+            policy = make_policy(cfg.policy, ds_meta=dataset.meta)
             preprocessor, postprocessor = make_pre_post_processors(
                 policy_cfg=cfg.policy,
                 pretrained_path=cfg.policy.pretrained_path,

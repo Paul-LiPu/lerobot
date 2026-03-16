@@ -1,6 +1,18 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Usage:
+#   bash swap_camera.sh
+#   bash swap_camera.sh suction-plate wrist top
+#   bash swap_camera.sh suction-plate wrist top true
+#
+# Notes:
+#   - Arg 1: dataset name
+#   - Arg 2: first camera name
+#   - Arg 3: second camera name
+#   - Arg 4: whether to overwrite the original dataset (`true` or `false`)
+#   - HF_USER is detected automatically from `hf auth whoami`
+
 DEFAULT_DATASET_NAME="suction-plate"
 DEFAULT_CAMERA_A="wrist"
 DEFAULT_CAMERA_B="top"

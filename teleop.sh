@@ -1,3 +1,13 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Usage:
+#   bash teleop.sh
+#
+# Notes:
+#   - Starts Lebai leader-follower teleoperation with the current camera setup
+#   - Camera paths are expected at /dev/cam_wrist, /dev/cam_top, and /dev/cam_side
+
 uv run --extra romoya lerobot-teleoperate \
   --fps=30 \
   --robot.type=romoya_lebai_follower \

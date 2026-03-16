@@ -12,6 +12,7 @@ set -euo pipefail
 REPO_URL="${REPO_URL:-https://github.com/Paul-LiPu/lerobot.git}"
 REPO_DIR="${REPO_DIR:-${HOME}/lerobot}"
 BRANCH="${BRANCH:-customized}"
+TRAIN_CONFIG_PATH="${TRAIN_CONFIG_PATH:-${REPO_DIR}/train_act_side_config.json}"
 
 ensure_cmd() {
   local cmd="$1"
@@ -67,4 +68,4 @@ fi
 echo "==> Ready to train"
 echo "Run:"
 echo "  cd ${REPO_DIR}"
-echo "  bash train.sh"
+echo "  TRAIN_CONFIG_PATH=${TRAIN_CONFIG_PATH} bash train.sh"

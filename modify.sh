@@ -1,6 +1,16 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Usage:
+#   bash modify.sh
+#   bash modify.sh my-dataset
+#   bash modify.sh my-dataset '[16, 23]'
+#
+# Notes:
+#   - Arg 1: dataset name
+#   - Arg 2: 0-based episode indices to delete
+#   - HF_USER is detected automatically from `hf auth whoami`
+
 DEFAULT_DATASET_NAME="record-test"
 DEFAULT_EPISODE_INDICES='[16, 23]'
 

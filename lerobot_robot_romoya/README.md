@@ -95,7 +95,7 @@ The current `romoya_lebai_leader` teleoperator uses:
 
 Keyboard bindings:
 
-- `Right Arrow`: open gripper to `100`
+- `Right Arrow`: open gripper to `99`
 - `Left Arrow`: close gripper to `0`
 - `1`: `DO_0=1`, `DO_1=1`
 - `2`: `DO_0=0`, `DO_1=1`

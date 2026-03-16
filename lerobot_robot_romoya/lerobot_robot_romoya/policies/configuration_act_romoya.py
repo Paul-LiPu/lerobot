@@ -60,7 +60,7 @@ DEFAULT_ROMOYA_ACTION_NAMES = [
 @dataclass
 class ACTRomoyaConfig(ACTConfig):
     chunk_size: int = 60
-    n_action_steps: int = 60
+    n_action_steps: int = 5
     state_feature_names_to_keep: list[str] = field(
         default_factory=lambda: [
             "joint1.pos",
@@ -91,7 +91,7 @@ class ACTRomoyaConfig(ACTConfig):
     )
     raw_action_feature_names: list[str] = field(default_factory=lambda: list(DEFAULT_ROMOYA_ACTION_NAMES))
     do_threshold: float = 0.5
-    sigmoid_do_outputs: bool = True
+    sigmoid_do_outputs: bool = False
 
     normalization_mapping: dict[str, NormalizationMode] = field(
         default_factory=lambda: {
