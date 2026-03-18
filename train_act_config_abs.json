@@ -66,33 +66,9 @@
       "joint6.pos",
       "gripper.pos"
     ],
-    "binary_state": [
-      null,
-      null,
-      null,
-      null,
-      null,
-      null,
-      99.0
-    ],
-    "binary_action": [
-      null,
-      null,
-      null,
-      null,
-      null,
-      null,
-      [90.0, 0.0, 99.0]
-    ],
-    "delta_action": [
-      false,
-      false,
-      false,
-      false,
-      false,
-      false,
-      false
-    ],
+    "binary_state": [null, null, null, null, null, null, 90.0],
+    "binary_action": [null, null, null, null, null, null, [90.0, 0.0, 99.0]],
+    "delta_action": [false, false, false, false, false, false, false],
     "input_features": {
       "observation.state": {
         "type": "STATE",

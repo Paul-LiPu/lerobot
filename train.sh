@@ -14,11 +14,11 @@ set -euo pipefail
 #   - HF_USER is detected automatically from `hf auth whoami`
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CONFIG_PATH="${TRAIN_CONFIG_PATH:-${SCRIPT_DIR}/train_act_side_config2.json}"
+CONFIG_PATH="${TRAIN_CONFIG_PATH:-${SCRIPT_DIR}/train_act_config_abs.json}"
 
-DEFAULT_DATASET_NAME="lebai-gripper-box"
-DEFAULT_POLICY_REPO_NAME="act_sjaj_lebai-gripper-box"
-DEFAULT_OUTPUT_NAME="act_sjaj_lebai-gripper-box"
+DEFAULT_DATASET_NAME="lebai-gripper-black-tape-box"
+DEFAULT_POLICY_REPO_NAME="act_sjaj_lebai-gripper-black-tape-box"
+DEFAULT_OUTPUT_NAME="act_sjaj_lebai-gripper-black-tape-box"
 DEFAULT_POLICY_TYPE="act_romoya"
 DEFAULT_DEVICE="cuda"
 DEFAULT_STEPS=40000
