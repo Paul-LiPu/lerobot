@@ -216,16 +216,14 @@ def transformed_action_names(action_feature_names: list[str], delta_action: list
 
 def classify_control_schema(action_feature_names: list[str]) -> str:
     action_set = set(action_feature_names)
-    joint_schema = {*JOINT_ACTION_NAMES, "gripper.pos", "DO_1"}
-    tcp_schema = {*TCP_ACTION_NAMES, "gripper.pos", "DO_1"}
-    if action_set == joint_schema:
+    optional_suffixes = {"gripper.pos", "DO_1"}
+    if action_set.issubset({*JOINT_ACTION_NAMES, *optional_suffixes}) and set(JOINT_ACTION_NAMES).issubset(action_set):
         return JOINT_CONTROL
-    if action_set == tcp_schema:
+    if action_set.issubset({*TCP_ACTION_NAMES, *optional_suffixes}) and set(TCP_ACTION_NAMES).issubset(action_set):
         return TCP_CONTROL
     raise ValueError(
-        "act_romoya action_feature_names must be exactly full joint control "
-        "(joint1.pos..joint6.pos, gripper.pos, DO_1) or full TCP control "
-        "(tcp.x, tcp.y, tcp.z, tcp.rx, tcp.ry, tcp.rz, gripper.pos, DO_1)."
+        "act_romoya action_feature_names must contain either all 6 joint pose dims or all 6 TCP pose dims. "
+        "gripper.pos and DO_1 are optional extras."
     )
 
 
@@ -405,14 +403,22 @@ def reconstruct_robot_action(
     else:
         raise ValueError(f"Unsupported control schema: {spec.control_schema}")
 
+    if "gripper.pos" in reconstructed_values:
+        gripper_target = reconstructed_values["gripper.pos"]
+    else:
+        gripper_target = flat_state[:, state_index["gripper.pos"]]
     reconstructed[:, output_action_index["gripper.pos"]] = torch.clamp(
-        reconstructed_values["gripper.pos"],
+        gripper_target,
         min=gripper_min,
         max=gripper_max,
     )
     reconstructed[:, output_action_index["gripper.force"]] = flat_state[:, state_index["gripper.force"]]
-    reconstructed[:, output_action_index["DO_0"]] = reconstructed_values["DO_1"]
-    reconstructed[:, output_action_index["DO_1"]] = reconstructed_values["DO_1"]
+    if "DO_1" in reconstructed_values:
+        reconstructed[:, output_action_index["DO_0"]] = reconstructed_values["DO_1"]
+        reconstructed[:, output_action_index["DO_1"]] = reconstructed_values["DO_1"]
+    else:
+        reconstructed[:, output_action_index["DO_0"]] = flat_state[:, state_index["DO_0"]]
+        reconstructed[:, output_action_index["DO_1"]] = flat_state[:, state_index["DO_1"]]
     return reconstructed.reshape(*transformed_action.shape[:-1], len(DEFAULT_ROMOYA_ACTION_NAMES))
 
 

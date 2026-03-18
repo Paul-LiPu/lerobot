@@ -16,13 +16,13 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONFIG_PATH="${TRAIN_CONFIG_PATH:-${SCRIPT_DIR}/train_act_side_config2.json}"
 
-DEFAULT_DATASET_NAME="lebai-suction-plate"
-DEFAULT_POLICY_REPO_NAME="act_sjadj_lebai-suction-plate_side2"
-DEFAULT_OUTPUT_NAME="act_sjadj_lebai-suction-plate_side2"
+DEFAULT_DATASET_NAME="lebai-gripper-box"
+DEFAULT_POLICY_REPO_NAME="act_sjaj_lebai-gripper-box"
+DEFAULT_OUTPUT_NAME="act_sjaj_lebai-gripper-box"
 DEFAULT_POLICY_TYPE="act_romoya"
 DEFAULT_DEVICE="cuda"
 DEFAULT_STEPS=40000
-DEFAULT_BATCH_SIZE=96
+DEFAULT_BATCH_SIZE=48
 DEFAULT_NUM_WORKERS=12
 DEFAULT_WANDB_ENABLE="true"
 
