@@ -14,15 +14,16 @@ set -euo pipefail
 #   - HF_USER is detected automatically from `hf auth whoami`
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CONFIG_PATH="${TRAIN_CONFIG_PATH:-${SCRIPT_DIR}/train_act_romoya_config.json}"
+CONFIG_PATH="${TRAIN_CONFIG_PATH:-${SCRIPT_DIR}/train_act_side_config2.json}"
 
 DEFAULT_DATASET_NAME="lebai-suction-plate"
-DEFAULT_POLICY_REPO_NAME="act_sjadj_lebai-suction-plate_side"
-DEFAULT_OUTPUT_NAME="act_sjadj_lebai-suction-plate_side"
+DEFAULT_POLICY_REPO_NAME="act_sjadj_lebai-suction-plate_side2"
+DEFAULT_OUTPUT_NAME="act_sjadj_lebai-suction-plate_side2"
 DEFAULT_POLICY_TYPE="act_romoya"
 DEFAULT_DEVICE="cuda"
 DEFAULT_STEPS=40000
-DEFAULT_BATCH_SIZE=56
+DEFAULT_BATCH_SIZE=96
+DEFAULT_NUM_WORKERS=12
 DEFAULT_WANDB_ENABLE="true"
 
 DATASET_NAME="${1:-${DEFAULT_DATASET_NAME}}"
@@ -105,6 +106,7 @@ if [[ "${ROMOYA_PREPARE_MODE}" != "none" ]]; then
     PREPARED_MATCH="$(
       python3 - "$CONFIG_PATH" "$DATASET_REPO_ID" "$ROMOYA_PREPARED_DATASET_REPO_ID" "$ROMOYA_PREPARED_DATASET_ROOT" <<'PY'
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -124,9 +126,15 @@ expected = {
     "delta_action": policy.get("delta_action"),
 }
 
-base_root = Path(dst_root) if dst_root else Path.home() / ".cache" / "huggingface" / "lerobot" / dst_repo_id
+if dst_root:
+    base_root = Path(dst_root)
+else:
+    hf_home = Path(os.getenv("HF_HOME", str(Path.home() / ".cache" / "huggingface")))
+    hf_lerobot_home = Path(os.getenv("HF_LEROBOT_HOME", str(hf_home / "lerobot")))
+    base_root = hf_lerobot_home / dst_repo_id
 info_path = base_root / "meta" / "info.json"
-if not info_path.is_file():
+stats_path = base_root / "meta" / "stats.json"
+if not info_path.is_file() or not stats_path.is_file():
     print("missing")
     raise SystemExit(0)
 
@@ -182,12 +190,18 @@ fi
 
 python3 - "$DATASET_REPO_ID" "${ROMOYA_PREPARED_DATASET_ROOT}" <<'PY'
 import json
+import os
 import sys
 from pathlib import Path
 
 dataset_repo_id = sys.argv[1]
 dataset_root_override = sys.argv[2] or None
-dataset_root = Path(dataset_root_override) if dataset_root_override else Path.home() / ".cache" / "huggingface" / "lerobot" / dataset_repo_id
+if dataset_root_override:
+    dataset_root = Path(dataset_root_override)
+else:
+    hf_home = Path(os.getenv("HF_HOME", str(Path.home() / ".cache" / "huggingface")))
+    hf_lerobot_home = Path(os.getenv("HF_LEROBOT_HOME", str(hf_home / "lerobot")))
+    dataset_root = hf_lerobot_home / dataset_repo_id
 info_path = dataset_root / "meta" / "info.json"
 stats_path = dataset_root / "meta" / "stats.json"
 
@@ -234,4 +248,5 @@ uv run --extra romoya lerobot-train \
   --job_name="${JOB_NAME}" \
   --steps="${DEFAULT_STEPS}" \
   --batch_size="${DEFAULT_BATCH_SIZE}" \
+  --num_workers="${DEFAULT_NUM_WORKERS}" \
   --wandb.enable="${DEFAULT_WANDB_ENABLE}"

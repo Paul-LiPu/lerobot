@@ -15,7 +15,6 @@ from lerobot.processor import (
     ProcessorStepRegistry,
     TransitionKey,
 )
-from lerobot.processor.converters import policy_action_to_transition, transition_to_policy_action
 from lerobot.utils.constants import ACTION, OBS_STATE, POLICY_POSTPROCESSOR_DEFAULT_NAME, POLICY_PREPROCESSOR_DEFAULT_NAME
 
 from .configuration_act_romoya import ACTRomoyaConfig
@@ -117,10 +116,12 @@ class ACTRomoyaPreprocessStep(ProcessorStep):
     def __call__(self, transition):
         observation = transition.get(TransitionKey.OBSERVATION)
         raw_state = None
+        state_was_raw = False
         if observation is not None and OBS_STATE in observation:
             maybe_state = observation[OBS_STATE]
             if maybe_state.shape[-1] == len(self.raw_observation_state_feature_names):
                 raw_state = maybe_state
+                state_was_raw = True
                 self._context.latest_raw_observation_state = raw_state.detach().clone()
                 observation[OBS_STATE] = select_and_transform_state(
                     raw_state,
@@ -135,6 +136,19 @@ class ACTRomoyaPreprocessStep(ProcessorStep):
                 )
 
         action = transition.get(TransitionKey.ACTION)
+        # Prepared Romoya datasets already store transformed observation.state and action values.
+        # In that case, both tensors arrive at the transformed Romoya dimensionality and must be
+        # passed through unchanged during training.
+        if (
+            action is not None
+            and not state_was_raw
+            and observation is not None
+            and OBS_STATE in observation
+            and observation[OBS_STATE].shape[-1] == len(self._spec.state_feature_names)
+            and action.shape[-1] == len(self._spec.action_feature_names)
+        ):
+            return transition
+
         if action is not None and action.shape[-1] == len(self.raw_action_feature_names):
             if raw_state is None:
                 cached = self._context.latest_raw_observation_state
@@ -342,11 +356,28 @@ def make_act_romoya_pre_post_processors(
         do_threshold=config.do_threshold,
         sigmoid_do_outputs=config.sigmoid_do_outputs,
     )
-
-    preprocessor.add_step(preprocess_step, after="rename_observations_processor")
-    postprocessor.add_step(postprocess_step, before="unnormalizer_processor")
-    preprocessor.add_step(policy_action_to_transition, before=POLICY_PREPROCESSOR_DEFAULT_NAME)
-    preprocessor.add_step(transition_to_policy_action, after=POLICY_PREPROCESSOR_DEFAULT_NAME)
-    postprocessor.add_step(policy_action_to_transition, before=POLICY_POSTPROCESSOR_DEFAULT_NAME)
-    postprocessor.add_step(transition_to_policy_action, after=POLICY_POSTPROCESSOR_DEFAULT_NAME)
+    preprocessor = PolicyProcessorPipeline[dict[str, Any], dict[str, Any]](
+        steps=[
+            preprocessor.steps[0],
+            preprocess_step,
+            *preprocessor.steps[1:],
+        ],
+        name=POLICY_PREPROCESSOR_DEFAULT_NAME,
+        to_transition=preprocessor.to_transition,
+        to_output=preprocessor.to_output,
+        before_step_hooks=preprocessor.before_step_hooks,
+        after_step_hooks=preprocessor.after_step_hooks,
+    )
+    postprocessor = PolicyProcessorPipeline[PolicyAction, PolicyAction](
+        steps=[
+            postprocessor.steps[0],
+            postprocess_step,
+            *postprocessor.steps[1:],
+        ],
+        name=POLICY_POSTPROCESSOR_DEFAULT_NAME,
+        to_transition=postprocessor.to_transition,
+        to_output=postprocessor.to_output,
+        before_step_hooks=postprocessor.before_step_hooks,
+        after_step_hooks=postprocessor.after_step_hooks,
+    )
     return preprocessor, postprocessor

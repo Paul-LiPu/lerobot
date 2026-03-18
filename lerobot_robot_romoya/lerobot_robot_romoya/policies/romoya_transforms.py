@@ -340,6 +340,9 @@ def select_and_transform_action(
 ) -> Tensor:
     action_index = _index_map(raw_action_feature_names)
     state_index = _index_map(raw_observation_state_feature_names)
+    aligned_state = raw_state
+    if raw_action.ndim == raw_state.ndim + 1:
+        aligned_state = raw_state.unsqueeze(-2)
     transformed_columns = []
     for name, binary_spec, is_delta in zip(
         action_feature_names, binary_action, delta_action, strict=True
@@ -349,7 +352,7 @@ def select_and_transform_action(
             threshold, _, _ = binary_spec
             values = (values >= threshold).to(dtype=raw_action.dtype)
         if is_delta:
-            values = values - raw_state[..., state_index[name]]
+            values = values - aligned_state[..., state_index[name]]
         transformed_columns.append(values.unsqueeze(-1))
     return torch.cat(transformed_columns, dim=-1)
 

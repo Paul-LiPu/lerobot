@@ -20,7 +20,6 @@ from lerobot.datasets.lerobot_dataset import LeRobotDataset
 from lerobot.utils.constants import ACTION, OBS_STATE
 from lerobot_robot_romoya.policies.configuration_act_romoya import ACTRomoyaConfig
 from lerobot_robot_romoya.policies.romoya_transforms import (
-    transformed_action_names,
     tensor_to_python_lists,
 )
 
@@ -33,7 +32,26 @@ def _load_policy_dict(path: Path) -> dict[str, Any]:
 
 
 def _build_config(policy_dict: dict[str, Any], dataset: LeRobotDataset) -> ACTRomoyaConfig:
+    config_input_features = dict(policy_dict.get("input_features", {}))
+    for key, feature in config_input_features.items():
+        if isinstance(feature, dict) and feature.get("type") == "STATE":
+            config_input_features[key] = PolicyFeature(
+                type=FeatureType.STATE,
+                shape=tuple(feature["shape"]),
+            )
+        elif isinstance(feature, dict) and feature.get("type") == "VISUAL":
+            config_input_features[key] = PolicyFeature(
+                type=FeatureType.VISUAL,
+                shape=tuple(feature["shape"]),
+            )
+
+    policy_dict = dict(policy_dict)
+    policy_dict.pop("type", None)
+    policy_dict.pop("input_features", None)
+    policy_dict.pop("output_features", None)
+    policy_dict.pop("device", None)
     input_features = {
+        **config_input_features,
         OBS_STATE: PolicyFeature(
             type=FeatureType.STATE,
             shape=tuple(dataset.meta.features[OBS_STATE]["shape"]),
@@ -93,7 +111,7 @@ def _transform_file(df: pd.DataFrame, cfg: ACTRomoyaConfig) -> tuple[pd.DataFram
             ACTION: {
                 "dtype": "float32",
                 "shape": (len(cfg.action_feature_names),),
-                "names": transformed_action_names(cfg.action_feature_names, cfg.delta_action),
+                "names": list(cfg.action_feature_names),
             },
         },
     )
@@ -129,7 +147,7 @@ def main() -> None:
     new_features[ACTION] = {
         **new_features[ACTION],
         "shape": (len(cfg.action_feature_names),),
-        "names": transformed_action_names(cfg.action_feature_names, cfg.delta_action),
+        "names": list(cfg.action_feature_names),
     }
 
     new_meta = LeRobotDatasetMetadata.create(
@@ -169,7 +187,6 @@ def main() -> None:
         "action_mode": cfg.action_mode,
         "state_feature_names": list(cfg.state_feature_names),
         "action_feature_names": list(cfg.action_feature_names),
-        "transformed_action_feature_names": transformed_action_names(cfg.action_feature_names, cfg.delta_action),
         "binary_state": list(cfg.binary_state),
         "binary_action": list(cfg.binary_action),
         "delta_action": list(cfg.delta_action),

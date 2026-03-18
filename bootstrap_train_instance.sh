@@ -54,7 +54,12 @@ echo "==> Syncing project environment"
 uv sync --extra romoya
 
 echo "==> Checking Hugging Face login"
-if ! hf auth whoami >/dev/null 2>&1; then
+HF_USER=$(
+  hf auth whoami 2>/dev/null \
+    | python3 -c 'import re,sys; s=sys.stdin.read(); s=re.sub(r"\x1b\[[0-9;]*[A-Za-z]", "", s); print(s, end="")' \
+    | awk -F': *' 'NR==1 {print $2}'
+)
+if [[ -z "${HF_USER}" ]]; then
   echo "Hugging Face login required. Running: hf auth login"
   hf auth login
 fi

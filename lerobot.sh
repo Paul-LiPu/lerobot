@@ -14,7 +14,8 @@ set -euo pipefail
 #   - Dataset input can be a dataset name, full repo id, or local dataset path
 #   - Plain dataset names are resolved under HF_USER from `hf auth whoami`
 
-CACHE_ROOT="${HOME}/.cache/huggingface/lerobot"
+DEFAULT_HF_HOME="${HOME}/.cache/huggingface"
+CACHE_ROOT="${HF_LEROBOT_HOME:-${HF_HOME:-${DEFAULT_HF_HOME}}/lerobot}"
 
 print_usage() {
   cat <<'EOF'
