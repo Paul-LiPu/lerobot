@@ -1,0 +1,100 @@
+{
+  "dataset": {
+    "repo_id": "SET_ME/DATASET",
+    "image_transforms": {
+      "enable": true,
+      "max_num_transforms": 2,
+      "random_order": false,
+      "tfs": {
+        "brightness": {
+          "weight": 1.0,
+          "type": "ColorJitter",
+          "kwargs": {
+            "brightness": [0.9, 1.1]
+          }
+        },
+        "contrast": {
+          "weight": 1.0,
+          "type": "ColorJitter",
+          "kwargs": {
+            "contrast": [0.9, 1.1]
+          }
+        },
+        "saturation": {
+          "weight": 0.5,
+          "type": "ColorJitter",
+          "kwargs": {
+            "saturation": [0.9, 1.1]
+          }
+        },
+        "hue": {
+          "weight": 0.25,
+          "type": "ColorJitter",
+          "kwargs": {
+            "hue": [-0.02, 0.02]
+          }
+        },
+        "sharpness": {
+          "weight": 0.5,
+          "type": "SharpnessJitter",
+          "kwargs": {
+            "sharpness": [0.9, 1.1]
+          }
+        }
+      }
+    }
+  },
+  "policy": {
+    "type": "act_romoya",
+    "action_mode": null,
+    "device": "cuda",
+    "state_feature_names": [
+      "joint1.pos",
+      "joint2.pos",
+      "joint3.pos",
+      "joint4.pos",
+      "joint5.pos",
+      "joint6.pos",
+      "gripper.pos",
+      "DO_1"
+    ],
+    "action_feature_names": [
+      "joint1.pos",
+      "joint2.pos",
+      "joint3.pos",
+      "joint4.pos",
+      "joint5.pos",
+      "joint6.pos",
+      "gripper.pos",
+      "DO_1"
+    ],
+    "binary_state": [null, null, null, null, null, null, 99, 0.5],
+    "binary_action": [
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      [99, 82, 99],
+      [0.5, 0.0, 1.0]
+    ],
+    "delta_action": [true, true, true, true, true, true, false, false],
+    "input_features": {
+      "observation.state": {
+        "type": "STATE",
+        "shape": [8]
+      },
+      "observation.images.side": {
+        "type": "VISUAL",
+        "shape": [3, 360, 640]
+      }
+    },
+    "repo_id": "SET_ME/POLICY"
+  },
+  "batch_size": 8,
+  "steps": 100000,
+  "wandb": {
+    "enable": true
+  }
+}

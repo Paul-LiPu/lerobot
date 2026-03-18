@@ -66,10 +66,13 @@ def summarize_preprocessor(config: dict[str, Any]) -> tuple[list[str], list[str]
     pre_cfg = preprocess["config"]
     features = normalizer["config"]["features"]
 
-    state_names = pre_cfg["state_feature_names_to_keep"]
-    action_names = list(pre_cfg["joint_action_names"]) + [pre_cfg["gripper_action_name"]] + list(
-        pre_cfg["do_action_names"]
-    )
+    state_names = pre_cfg.get("state_feature_names") or pre_cfg["state_feature_names_to_keep"]
+    if "action_feature_names" in pre_cfg:
+        action_names = list(pre_cfg["action_feature_names"])
+    else:
+        action_names = list(pre_cfg["joint_action_names"]) + [pre_cfg["gripper_action_name"]] + list(
+            pre_cfg["do_action_names"]
+        )
 
     print("Preprocessor")
     print(f"  observation.state shape: {features['observation.state']['shape']}")
@@ -93,9 +96,12 @@ def summarize_postprocessor(config: dict[str, Any]) -> list[str]:
         raise ValueError("Expected act_romoya_postprocess_v1 and unnormalizer_processor in postprocessor config.")
 
     post_cfg = postprocess["config"]
-    action_names = list(post_cfg["joint_action_names"]) + [post_cfg["gripper_action_name"]] + list(
-        post_cfg["do_action_names"]
-    )
+    if "action_feature_names" in post_cfg:
+        action_names = list(post_cfg["action_feature_names"])
+    else:
+        action_names = list(post_cfg["joint_action_names"]) + [post_cfg["gripper_action_name"]] + list(
+            post_cfg["do_action_names"]
+        )
 
     print("Postprocessor")
     print(f"  unnormalized action shape: {unnormalizer['config']['features']['action']['shape']}")
