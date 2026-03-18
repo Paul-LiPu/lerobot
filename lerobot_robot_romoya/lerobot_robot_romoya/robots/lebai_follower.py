@@ -6,10 +6,33 @@ from lerobot.processor import RobotAction, RobotObservation
 from lerobot.robots import Robot
 from lerobot.utils.errors import DeviceAlreadyConnectedError, DeviceNotConnectedError
 
-from ..lebai_sdk_utils import JOINT_COUNT, TCP_KEYS, connect_arm, get_claw_data, get_field, maybe_read_camera, pose_to_dict
+from ..lebai_sdk_utils import (
+    JOINT_COUNT,
+    TCP_KEYS,
+    connect_arm,
+    get_claw_data,
+    get_field,
+    get_float_sequence,
+    maybe_read_camera,
+    pose_to_dict,
+    prefixed_pose_to_dict,
+)
 from .config_lebai_follower import LebaiFollowerConfig
 
 logger = logging.getLogger(__name__)
+
+
+ADDITIONAL_STATE_FEATURES = [
+    *(f"joint{i}.temp" for i in range(1, JOINT_COUNT + 1)),
+    *(f"joint{i}.voltage" for i in range(1, JOINT_COUNT + 1)),
+    "flange_voltage",
+    *(f"flange.{key}" for key in TCP_KEYS),
+    *(f"target_joint{i}.pos" for i in range(1, JOINT_COUNT + 1)),
+    *(f"target_joint{i}.vel" for i in range(1, JOINT_COUNT + 1)),
+    *(f"target_joint{i}.acc" for i in range(1, JOINT_COUNT + 1)),
+    *(f"target_joint{i}.effort" for i in range(1, JOINT_COUNT + 1)),
+    *(f"target_tcp.{key}" for key in TCP_KEYS),
+]
 
 
 class LebaiFollower(Robot):
@@ -46,11 +69,7 @@ class LebaiFollower(Robot):
 
     @property
     def _action_features(self) -> dict[str, type]:
-        features = dict(self._motor_features)
-        features["gripper.force"] = float
-        features["DO_0"] = float
-        features["DO_1"] = float
-        return features
+        return dict(self._motor_features)
 
     @property
     def _camera_features(self) -> dict[str, tuple[int, int, int]]:
@@ -73,6 +92,8 @@ class LebaiFollower(Robot):
                 features[f"joint{i}.acc"] = float
         for key in TCP_KEYS:
             features[f"tcp.{key}"] = float
+        for key in ADDITIONAL_STATE_FEATURES:
+            features[key] = float
         return features
 
     @property
@@ -126,12 +147,13 @@ class LebaiFollower(Robot):
 
     def get_observation(self) -> RobotObservation:
         kin_data = self._get_kin_data()
+        phy_data = self.arm.get_phy_data()
         obs: dict[str, Any] = {}
 
-        joint_positions = list(get_field(kin_data, "actual_joint_pose"))
-        joint_torque = list(get_field(kin_data, "actual_joint_torque"))
-        joint_speed = list(get_field(kin_data, "actual_joint_speed"))
-        joint_acc = list(get_field(kin_data, "actual_joint_acc"))
+        joint_positions = get_float_sequence(kin_data, "actual_joint_pose", expected_len=JOINT_COUNT)
+        joint_torque = get_float_sequence(kin_data, "actual_joint_torque", expected_len=JOINT_COUNT)
+        joint_speed = get_float_sequence(kin_data, "actual_joint_speed", expected_len=JOINT_COUNT)
+        joint_acc = get_float_sequence(kin_data, "actual_joint_acc", expected_len=JOINT_COUNT)
 
         for index, position in enumerate(joint_positions, start=1):
             obs[f"joint{index}.pos"] = float(position)
@@ -150,6 +172,25 @@ class LebaiFollower(Robot):
 
         for key, value in pose_to_dict(get_field(kin_data, "actual_tcp_pose")).items():
             obs[f"tcp.{key}"] = value
+
+        joint_temp = get_float_sequence(phy_data, "joint_temp", expected_len=JOINT_COUNT)
+        joint_voltage = get_float_sequence(phy_data, "joint_voltage", expected_len=JOINT_COUNT)
+        target_joint_pose = get_float_sequence(kin_data, "target_joint_pose", expected_len=JOINT_COUNT)
+        target_joint_speed = get_float_sequence(kin_data, "target_joint_speed", expected_len=JOINT_COUNT)
+        target_joint_acc = get_float_sequence(kin_data, "target_joint_acc", expected_len=JOINT_COUNT)
+        target_joint_torque = get_float_sequence(kin_data, "target_joint_torque", expected_len=JOINT_COUNT)
+
+        for index in range(1, JOINT_COUNT + 1):
+            obs[f"joint{index}.temp"] = joint_temp[index - 1]
+            obs[f"joint{index}.voltage"] = joint_voltage[index - 1]
+            obs[f"target_joint{index}.pos"] = target_joint_pose[index - 1]
+            obs[f"target_joint{index}.vel"] = target_joint_speed[index - 1]
+            obs[f"target_joint{index}.acc"] = target_joint_acc[index - 1]
+            obs[f"target_joint{index}.effort"] = target_joint_torque[index - 1]
+
+        obs["flange_voltage"] = float(get_field(phy_data, "flange_voltage"))
+        obs.update(prefixed_pose_to_dict("flange", get_field(kin_data, "actual_flange_pose")))
+        obs.update(prefixed_pose_to_dict("target_tcp", get_field(kin_data, "target_tcp_pose")))
 
         for cam_key, camera in self.cameras.items():
             obs[cam_key] = maybe_read_camera(camera)

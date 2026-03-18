@@ -17,7 +17,15 @@
 from unittest.mock import patch
 
 from lerobot.scripts.lerobot_calibrate import CalibrateConfig, calibrate
-from lerobot.scripts.lerobot_record import DatasetRecordConfig, RecordConfig, record
+from lerobot.scripts.lerobot_record import (
+    DatasetRecordConfig,
+    RecordConfig,
+    _apply_saved_reset_state,
+    _capture_reset_state_from_observation,
+    _load_initial_pose,
+    _save_initial_pose,
+    record,
+)
 from lerobot.scripts.lerobot_replay import DatasetReplayConfig, ReplayConfig, replay
 from lerobot.scripts.lerobot_teleoperate import TeleoperateConfig, teleoperate
 from tests.fixtures.constants import DUMMY_REPO_ID
@@ -121,3 +129,102 @@ def test_record_and_replay(tmp_path):
         mock_get_safe_version.return_value = "v3.0"
         mock_snapshot_download.return_value = str(tmp_path / "record_and_replay")
         replay(replay_cfg)
+
+
+def test_capture_reset_state_from_observation():
+    observation = {
+        "joint1.pos": 1.0,
+        "joint2.pos": 2.0,
+        "joint3.pos": 3.0,
+        "joint4.pos": 4.0,
+        "joint5.pos": 5.0,
+        "joint6.pos": 6.0,
+        "gripper.pos": 90.0,
+        "DO_0": 0.0,
+        "DO_1": 1.0,
+        "tcp.x": 0.1,
+    }
+
+    state = _capture_reset_state_from_observation(observation)
+
+    assert state == {
+        "joint1.pos": 1.0,
+        "joint2.pos": 2.0,
+        "joint3.pos": 3.0,
+        "joint4.pos": 4.0,
+        "joint5.pos": 5.0,
+        "joint6.pos": 6.0,
+        "gripper.pos": 90.0,
+        "DO_0": 0.0,
+        "DO_1": 1.0,
+    }
+
+
+def test_apply_saved_reset_state():
+    class DummyResetRobot:
+        name = "romoya_lebai_follower"
+
+        def __init__(self):
+            self.joints = None
+            self.action = None
+
+        def move_to_joint_positions(self, joint_positions):
+            self.joints = list(joint_positions)
+
+        def send_action(self, action):
+            self.action = dict(action)
+
+    class DummyLeaderTeleop:
+        def __init__(self):
+            self.joints = None
+            self.saved_state = None
+
+        def move_to_joint_positions(self, joint_positions):
+            self.joints = list(joint_positions)
+
+        def apply_saved_control_state(self, saved_state):
+            self.saved_state = dict(saved_state)
+
+    robot = DummyResetRobot()
+    teleop = DummyLeaderTeleop()
+    saved_state = {
+        "joint1.pos": 1.0,
+        "joint2.pos": 2.0,
+        "joint3.pos": 3.0,
+        "joint4.pos": 4.0,
+        "joint5.pos": 5.0,
+        "joint6.pos": 6.0,
+        "gripper.pos": 90.0,
+        "DO_0": 0.0,
+        "DO_1": 1.0,
+    }
+
+    applied = _apply_saved_reset_state(robot, teleop, saved_state)
+
+    assert applied is True
+    assert teleop.joints == [1.0, 2.0, 3.0, 4.0, 5.0, 6.0]
+    assert teleop.saved_state == saved_state
+    assert robot.joints is None
+    assert robot.action is None
+
+
+def test_save_and_load_initial_pose(tmp_path):
+    saved_state = {
+        "joint1.pos": 1.0,
+        "joint2.pos": 2.0,
+        "joint3.pos": 3.0,
+        "joint4.pos": 4.0,
+        "joint5.pos": 5.0,
+        "joint6.pos": 6.0,
+        "gripper.pos": 90.0,
+        "DO_0": 0.0,
+        "DO_1": 1.0,
+    }
+    pose_path = tmp_path / "initial_pose.json"
+
+    assert _save_initial_pose(pose_path, saved_state) is True
+    assert _load_initial_pose(pose_path) == saved_state
+
+
+def test_load_initial_pose_returns_none_for_missing_file(tmp_path):
+    assert _load_initial_pose(tmp_path / "missing_initial_pose.json") is None

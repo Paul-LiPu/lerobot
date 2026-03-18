@@ -6,16 +6,21 @@ set -euo pipefail
 #   bash infer.sh my-eval-dataset
 #   bash infer.sh my-eval-dataset "pick up the plate using suction cup"
 #   bash infer.sh my-eval-dataset "pick up the plate using suction cup" my-policy
+#   bash infer.sh my-eval-dataset "pick up the plate using suction cup" my-policy /path/to/initial_pose.json
 #
 # Notes:
 #   - Arg 1: eval dataset name or full repo id
 #   - Arg 2: task string
 #   - Arg 3: policy name or full repo id
+#   - Arg 4: initial pose path
 #   - HF_USER is detected automatically from `hf auth whoami`
 
 DEFAULT_EVAL_DATASET_NAME="eval_lebai_act_romoya_sunction_plate"
 DEFAULT_SINGLE_TASK="pick up the plate using suction cup"
-DEFAULT_POLICY_NAME="act_sjadj_lebai-suction-plate"
+# DEFAULT_POLICY_NAME="act_sjadj_lebai-suction-plate"
+# DEFAULT_POLICY_NAME="act_sjadj_lebai-suction-plate_side"
+DEFAULT_POLICY_NAME="act_sjaj_lebai-suction-plate_side"
+DEFAULT_N_ACTION_STEPS=1
 DEFAULT_NUM_EPISODES=10
 DEFAULT_EPISODE_TIME_S=60
 DEFAULT_RESET_TIME_S=60
@@ -23,6 +28,9 @@ DEFAULT_RESET_TIME_S=60
 EVAL_DATASET_NAME="${1:-${DEFAULT_EVAL_DATASET_NAME}}"
 SINGLE_TASK="${2:-${DEFAULT_SINGLE_TASK}}"
 POLICY_NAME="${3:-${DEFAULT_POLICY_NAME}}"
+INITIAL_POSE_PATH_ARG="${4:-}"
+DEFAULT_INITIAL_POSE_PATH="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/initial_pose_lebai-suction-plate_25.json"
+INITIAL_POSE_PATH="${INITIAL_POSE_PATH_ARG:-${INITIAL_POSE_PATH:-${DEFAULT_INITIAL_POSE_PATH}}}"
 
 HF_USER=$(
   hf auth whoami \
@@ -45,6 +53,11 @@ if [[ "${POLICY_NAME}" == */* ]]; then
   POLICY_PATH="${POLICY_NAME}"
 else
   POLICY_PATH="${HF_USER}/${POLICY_NAME}"
+fi
+
+EXTRA_ARGS=()
+if [[ -n "${INITIAL_POSE_PATH}" ]]; then
+  EXTRA_ARGS+=(--initial_pose_path="${INITIAL_POSE_PATH}")
 fi
 
 uv run --extra romoya lerobot-record \
@@ -70,4 +83,6 @@ uv run --extra romoya lerobot-record \
   --dataset.reset_time_s="${DEFAULT_RESET_TIME_S}" \
   --dataset.streaming_encoding=true \
   --dataset.encoder_threads=4 \
-  --policy.path="${POLICY_PATH}"
+  --policy.path="${POLICY_PATH}" \
+  --policy.n_action_steps="${DEFAULT_N_ACTION_STEPS}" \
+  "${EXTRA_ARGS[@]}"

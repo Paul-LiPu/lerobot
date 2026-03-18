@@ -1,5 +1,6 @@
 from collections.abc import Mapping
 import importlib
+import os
 from typing import Any
 
 JOINT_COUNT = 6
@@ -32,6 +33,17 @@ def pose_to_dict(pose: Any) -> dict[str, float]:
     if isinstance(pose, Mapping):
         return {key: float(pose[key]) for key in TCP_KEYS}
     return {key: float(getattr(pose, key)) for key in TCP_KEYS}
+
+
+def prefixed_pose_to_dict(prefix: str, pose: Any) -> dict[str, float]:
+    return {f"{prefix}.{key}": value for key, value in pose_to_dict(pose).items()}
+
+
+def get_float_sequence(data: Any, name: str, *, expected_len: int | None = None) -> list[float]:
+    values = [float(v) for v in get_field(data, name)]
+    if expected_len is not None and len(values) < expected_len:
+        raise ValueError(f"Expected '{name}' to contain at least {expected_len} values, got {len(values)}")
+    return values
 
 
 def maybe_read_camera(camera: Any) -> Any:
@@ -98,3 +110,49 @@ def get_claw_data(arm: Any) -> dict[str, float | bool]:
             return {"force": force, "amplitude": amplitude, "hold_on": hold_on}
 
     return {"force": 0.0, "amplitude": 0.0, "hold_on": False}
+
+
+_KINEMATICS_CLIENT: Any | None = None
+
+
+def _get_kinematics_client() -> Any:
+    global _KINEMATICS_CLIENT
+
+    sdk = get_lebai_sdk()
+    if hasattr(sdk, "kinematics_forward") and hasattr(sdk, "kinematics_inverse"):
+        init = getattr(sdk, "init", None)
+        if callable(init):
+            init()
+        return sdk
+
+    if _KINEMATICS_CLIENT is None:
+        ip = os.environ.get("LEBAI_KINEMATICS_IP")
+        if not ip:
+            raise RuntimeError(
+                "lebai_sdk does not expose generic kinematics helpers in this environment. "
+                "Set LEBAI_KINEMATICS_IP so Romoya can open a cached SDK client for FK/IK."
+            )
+        port_str = os.environ.get("LEBAI_KINEMATICS_PORT")
+        simu = os.environ.get("LEBAI_KINEMATICS_SIMU", "").lower() in {"1", "true", "yes"}
+        port = int(port_str) if port_str else None
+        _KINEMATICS_CLIENT = connect_arm(ip, port=port, simu=simu)
+
+    return _KINEMATICS_CLIENT
+
+
+def kinematics_forward(joint_positions: list[float]) -> dict[str, float]:
+    client = _get_kinematics_client()
+    result = client.kinematics_forward(list(joint_positions))
+    return pose_to_dict(result)
+
+
+def kinematics_inverse(tcp_pose: dict[str, float], seed_joints: list[float] | None = None) -> list[float]:
+    client = _get_kinematics_client()
+    target_pose = {key: float(tcp_pose[key]) for key in TCP_KEYS}
+    if seed_joints is None:
+        result = client.kinematics_inverse(target_pose)
+    else:
+        result = client.kinematics_inverse(target_pose, list(seed_joints))
+    if hasattr(result, "joint_positions"):
+        return [float(v) for v in result.joint_positions]
+    return [float(v) for v in result]

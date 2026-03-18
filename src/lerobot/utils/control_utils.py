@@ -136,6 +136,9 @@ def init_keyboard_listener():
     events["exit_early"] = False
     events["rerecord_episode"] = False
     events["stop_recording"] = False
+    events["save_reset_state"] = False
+    events["clear_reset_state"] = False
+    events["load_reset_state"] = False
 
     if is_headless():
         logging.warning(

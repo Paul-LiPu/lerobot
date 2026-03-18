@@ -67,6 +67,7 @@ lerobot-record \
 ```
 """
 
+import json
 import logging
 import sys
 import time
@@ -196,6 +197,118 @@ def safe_disconnect_devices(robot: Robot | None, teleop: Teleoperator | None) ->
             logging.exception("Failed disconnecting teleoperator during shutdown.")
 
 
+RESET_STATE_KEYS = [*(f"joint{i}.pos" for i in range(1, 7)), "gripper.pos", "DO_0", "DO_1"]
+
+
+def _validate_reset_state(saved_reset_state: dict[str, Any]) -> dict[str, float]:
+    missing = [key for key in RESET_STATE_KEYS if key not in saved_reset_state]
+    if missing:
+        raise ValueError(f"Reset state is missing keys: {missing}")
+    return {key: float(saved_reset_state[key]) for key in RESET_STATE_KEYS}
+
+
+def _load_initial_pose(path: str | Path | None) -> dict[str, float] | None:
+    if path is None:
+        return None
+    pose_path = Path(path)
+    if not pose_path.exists():
+        logging.info("Initial pose file does not exist yet: %s", pose_path)
+        return None
+    try:
+        payload = json.loads(pose_path.read_text())
+        state = _validate_reset_state(payload)
+    except Exception as exc:
+        logging.warning("Ignoring invalid initial pose file %s: %s", pose_path, exc)
+        return None
+    logging.info("Loaded initial pose from %s", pose_path)
+    return state
+
+
+def _save_initial_pose(path: str | Path | None, saved_reset_state: dict[str, float] | None) -> bool:
+    if path is None or saved_reset_state is None:
+        return False
+    pose_path = Path(path)
+    pose_path.parent.mkdir(parents=True, exist_ok=True)
+    payload = _validate_reset_state(saved_reset_state)
+    tmp_path = pose_path.with_suffix(f"{pose_path.suffix}.tmp")
+    tmp_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
+    tmp_path.replace(pose_path)
+    logging.info("Saved initial pose to %s", pose_path)
+    return True
+
+
+def _poll_teleop_control_events(teleop: Teleoperator | list[Teleoperator] | None, events: dict[str, bool]) -> None:
+    teleops = teleop if isinstance(teleop, list) else [teleop]
+    for teleop_device in teleops:
+        if teleop_device is None or not hasattr(teleop_device, "consume_control_events"):
+            continue
+        pending = teleop_device.consume_control_events()
+        for event_name in pending:
+            if event_name in events:
+                events[event_name] = True
+
+
+def _capture_reset_state_from_observation(observation: RobotObservation) -> dict[str, float]:
+    missing = [key for key in RESET_STATE_KEYS if key not in observation]
+    if missing:
+        raise ValueError(f"Cannot capture reset state, missing observation keys: {missing}")
+    return _validate_reset_state({key: observation[key] for key in RESET_STATE_KEYS})
+
+
+def _apply_saved_reset_state(
+    robot: Robot,
+    teleop: Teleoperator | list[Teleoperator] | None,
+    saved_reset_state: dict[str, float] | None,
+) -> bool:
+    if saved_reset_state is None:
+        return False
+    joint_positions = [saved_reset_state[f"joint{i}.pos"] for i in range(1, 7)]
+    teleops = teleop if isinstance(teleop, list) else [teleop]
+
+    for teleop_device in teleops:
+        if teleop_device is None or not hasattr(teleop_device, "move_to_joint_positions"):
+            continue
+        try:
+            teleop_device.move_to_joint_positions(joint_positions)
+            if hasattr(teleop_device, "apply_saved_control_state"):
+                teleop_device.apply_saved_control_state(saved_reset_state)
+            logging.info("Applied saved reset state to teleoperator %s.", type(teleop_device).__name__)
+            return True
+        except Exception:
+            logging.exception("Failed applying saved reset state to teleoperator; trying robot fallback.")
+
+    if not hasattr(robot, "move_to_joint_positions") or not hasattr(robot, "send_action"):
+        logging.warning("Robot %s does not support saved reset state application; skipping.", robot.name)
+        return False
+
+    try:
+        robot.move_to_joint_positions(joint_positions)
+        robot.send_action(
+            {
+                "gripper.pos": saved_reset_state["gripper.pos"],
+                "DO_0": saved_reset_state["DO_0"],
+                "DO_1": saved_reset_state["DO_1"],
+            }
+        )
+    except Exception:
+        logging.exception("Failed applying saved reset state; continuing without interrupting recording.")
+        return False
+    return True
+
+
+def _get_record_action_features(
+    robot: Robot,
+    teleop: Teleoperator | list[Teleoperator] | None,
+    has_policy: bool,
+) -> dict[str, Any]:
+    # For teleop-only data collection, preserve the teleoperator's richer action schema
+    # (for example Lebai leader tcp.* fields) in the dataset action. Policy-driven record/eval
+    # keeps the robot control action schema so existing postprocessors and checkpoints still match.
+    if not has_policy and isinstance(teleop, Teleoperator):
+        return teleop.action_features
+    return robot.action_features
+
+
 @dataclass
 class DatasetRecordConfig:
     # Dataset identifier. By convention it should match '{hf_username}/{dataset_name}' (e.g. `lerobot/test`).
@@ -273,6 +386,10 @@ class RecordConfig:
     play_sounds: bool = True
     # Resume recording on an existing dataset.
     resume: bool = False
+    # Optional JSON file used to persist/reset a shared initial pose across sessions.
+    initial_pose_path: str | Path | None = None
+    # Whether save events should immediately overwrite the initial pose JSON when configured.
+    autosave_initial_pose: bool = True
 
     def __post_init__(self):
         # HACK: We parse again the cli args here to get the pretrained path if there was one.
@@ -347,6 +464,9 @@ def record_loop(
     phase_name: str = "recording",
     display_data: bool = False,
     display_compressed_images: bool = False,
+    saved_reset_state_ref: dict[str, dict[str, float] | None] | None = None,
+    initial_pose_path: str | Path | None = None,
+    autosave_initial_pose: bool = True,
 ):
     if dataset is not None and dataset.fps != fps:
         raise ValueError(f"The dataset fps should be equal to requested fps ({dataset.fps} != {fps}).")
@@ -405,12 +525,35 @@ def record_loop(
     while timestamp < control_time_s:
         start_loop_t = time.perf_counter()
 
+        _poll_teleop_control_events(teleop, events)
+
         if events["exit_early"]:
             events["exit_early"] = False
             break
 
         # Get robot observation
         obs = robot.get_observation()
+        if saved_reset_state_ref is not None:
+            if events.get("save_reset_state", False):
+                saved_reset_state_ref["value"] = _capture_reset_state_from_observation(obs)
+                events["save_reset_state"] = False
+                logging.info("Saved reset state from current follower observation.")
+                if autosave_initial_pose:
+                    _save_initial_pose(initial_pose_path, saved_reset_state_ref["value"])
+            if events.get("clear_reset_state", False):
+                saved_reset_state_ref["value"] = None
+                events["clear_reset_state"] = False
+                logging.info("Cleared saved reset state.")
+            if events.get("load_reset_state", False):
+                events["load_reset_state"] = False
+                loaded_reset_state = _load_initial_pose(initial_pose_path)
+                if loaded_reset_state is not None:
+                    saved_reset_state_ref["value"] = loaded_reset_state
+                if saved_reset_state_ref["value"] is None:
+                    logging.info("No saved reset state available to apply.")
+                else:
+                    _apply_saved_reset_state(robot, teleop, saved_reset_state_ref["value"])
+                    continue
 
         # Applies a pipeline to the raw robot observation, default is IdentityProcessor
         obs_processed = robot_observation_processor(obs)
@@ -516,11 +659,12 @@ def record(cfg: RecordConfig) -> LeRobotDataset:
 
     teleop_action_processor, robot_action_processor, robot_observation_processor = make_default_processors()
 
+    record_action_features = _get_record_action_features(robot, teleop, has_policy=cfg.policy is not None)
     dataset_features = combine_feature_dicts(
         aggregate_pipeline_dataset_features(
             pipeline=teleop_action_processor,
             initial_features=create_initial_features(
-                action=robot.action_features
+                action=record_action_features
             ),  # TODO(steven, pepijn): in future this should be come from teleop or policy
             use_videos=cfg.dataset.video,
         ),
@@ -535,6 +679,7 @@ def record(cfg: RecordConfig) -> LeRobotDataset:
     listener = None
     exit_code = 0
     completed_successfully = False
+    saved_reset_state_ref: dict[str, dict[str, float] | None] = {"value": _load_initial_pose(cfg.initial_pose_path)}
 
     try:
         if cfg.resume:
@@ -622,6 +767,9 @@ def record(cfg: RecordConfig) -> LeRobotDataset:
                     single_task=cfg.dataset.single_task,
                     phase_name=f"reset before episode {dataset.num_episodes}",
                     display_data=cfg.display_data,
+                    saved_reset_state_ref=saved_reset_state_ref,
+                    initial_pose_path=cfg.initial_pose_path,
+                    autosave_initial_pose=cfg.autosave_initial_pose,
                 )
             while recorded_episodes < cfg.dataset.num_episodes and not events["stop_recording"]:
                 log_say(f"Recording episode {dataset.num_episodes}", cfg.play_sounds)
@@ -642,6 +790,9 @@ def record(cfg: RecordConfig) -> LeRobotDataset:
                     phase_name=f"recording episode {dataset.num_episodes}",
                     display_data=cfg.display_data,
                     display_compressed_images=display_compressed_images,
+                    saved_reset_state_ref=saved_reset_state_ref,
+                    initial_pose_path=cfg.initial_pose_path,
+                    autosave_initial_pose=cfg.autosave_initial_pose,
                 )
 
                 # Execute a few seconds without recording to give time to manually reset the environment
@@ -663,6 +814,9 @@ def record(cfg: RecordConfig) -> LeRobotDataset:
                         single_task=cfg.dataset.single_task,
                         phase_name=f"reset before episode {dataset.num_episodes + 1}",
                         display_data=cfg.display_data,
+                        saved_reset_state_ref=saved_reset_state_ref,
+                        initial_pose_path=cfg.initial_pose_path,
+                        autosave_initial_pose=cfg.autosave_initial_pose,
                     )
 
                 if events["rerecord_episode"]:
@@ -670,6 +824,16 @@ def record(cfg: RecordConfig) -> LeRobotDataset:
                     events["rerecord_episode"] = False
                     events["exit_early"] = False
                     dataset.clear_episode_buffer()
+                    continue
+
+                if dataset.episode_buffer is None or dataset.episode_buffer["size"] == 0:
+                    logging.warning(
+                        "No frames were recorded for episode %s; dropping it like a re-recorded episode.",
+                        dataset.num_episodes,
+                    )
+                    dataset.clear_episode_buffer()
+                    events["rerecord_episode"] = False
+                    events["exit_early"] = False
                     continue
 
                 dataset.save_episode()

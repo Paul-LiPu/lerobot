@@ -5,16 +5,23 @@ set -euo pipefail
 #   bash record.sh
 #   bash record.sh my-dataset
 #   bash record.sh my-dataset "Grab the black cube"
+#   bash record.sh my-dataset "Grab the black cube" /path/to/initial_pose.json
+#   bash record.sh my-dataset "Grab the black cube" /path/to/initial_pose.json 82
 #
 # Notes:
 #   - Arg 1: dataset name
 #   - Arg 2: task string
+#   - Arg 3: initial pose json path
+#   - Arg 4: closed gripper position
 #   - HF_USER is detected automatically from `hf auth whoami`
 
 DEFAULT_DATASET_NAME="record-test"
 DEFAULT_SINGLE_TASK="Grab the black cube"
+DEFAULT_GRIPPER_CLOSED_POSITION="0"
 DATASET_NAME="${1:-${DEFAULT_DATASET_NAME}}"
 SINGLE_TASK="${2:-${DEFAULT_SINGLE_TASK}}"
+INITIAL_POSE_PATH_ARG="${3:-}"
+GRIPPER_CLOSED_POSITION="${4:-${GRIPPER_CLOSED_POSITION:-${DEFAULT_GRIPPER_CLOSED_POSITION}}}"
 
 HF_USER=$(
   hf auth whoami \
@@ -30,12 +37,19 @@ fi
 DATASET_REPO_ID="${HF_USER}/${DATASET_NAME}"
 LOCAL_DATASET_DIR="${HOME}/.cache/huggingface/lerobot/${DATASET_REPO_ID}"
 LOCAL_DATASET_META_DIR="${LOCAL_DATASET_DIR}/meta"
+DEFAULT_INITIAL_POSE_PATH="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/initial_pose.json"
+INITIAL_POSE_PATH="${INITIAL_POSE_PATH_ARG:-${INITIAL_POSE_PATH:-${DEFAULT_INITIAL_POSE_PATH}}}"
 TMP_CAMERA_SETTINGS="$(mktemp "${TMPDIR:-/tmp}/camera-settings.XXXXXX.json")"
 
 cleanup() {
   rm -f "${TMP_CAMERA_SETTINGS}"
 }
 trap cleanup EXIT
+
+EXTRA_ARGS=()
+if [[ -n "${INITIAL_POSE_PATH}" ]]; then
+  EXTRA_ARGS+=(--initial_pose_path="${INITIAL_POSE_PATH}")
+fi
 
 uv run lerobot-v4l2-camera-settings save \
   --device /dev/cam_wrist \
@@ -49,7 +63,7 @@ uv run --extra romoya lerobot-record \
   --robot.ip=192.168.50.172 \
   --robot.id=lebai_follower_arm \
   --robot.cameras='{ wrist: {type: opencv, index_or_path: /dev/cam_wrist, width: 640, height: 360, fps: 30, fourcc: MJPG}, top: {type: opencv, index_or_path: /dev/cam_top, width: 640, height: 360, fps: 30, fourcc: MJPG}, side: {type: opencv, index_or_path: /dev/cam_side, width: 640, height: 360, fps: 30, fourcc: MJPG}}' \
-  --robot.gripper_closed_position=82.0 \
+  --robot.gripper_closed_position="${GRIPPER_CLOSED_POSITION}" \
   --robot.gripper_force=100 \
   --robot.acceleration=1.0 \
   --robot.velocity=1.0 \
@@ -58,14 +72,15 @@ uv run --extra romoya lerobot-record \
   --teleop.ip=192.168.50.154 \
   --teleop.gripper_force=100 \
   --teleop.id=lebai_leader_arm \
-  --display_data=false \
+  --display_data=true \
   --dataset.repo_id="${DATASET_REPO_ID}" \
-  --dataset.num_episodes=10 \
-  --dataset.episode_time_s=120 \
-  --dataset.reset_time_s=120 \
+  --dataset.num_episodes=50 \
+  --dataset.episode_time_s=300 \
+  --dataset.reset_time_s=300 \
   --dataset.single_task="${SINGLE_TASK}" \
   --dataset.streaming_encoding=true \
-  --dataset.encoder_threads=4
+  --dataset.encoder_threads=4 \
+  "${EXTRA_ARGS[@]}"
 
 mkdir -p "${LOCAL_DATASET_META_DIR}"
 cp "${TMP_CAMERA_SETTINGS}" "${LOCAL_DATASET_META_DIR}/camera-settings.json"

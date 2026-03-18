@@ -53,6 +53,7 @@ from lerobot.processor.converters import (
 from lerobot.types import PolicyAction
 from lerobot.utils.constants import (
     ACTION,
+    OBS_STATE,
     POLICY_POSTPROCESSOR_DEFAULT_NAME,
     POLICY_PREPROCESSOR_DEFAULT_NAME,
 )
@@ -456,6 +457,10 @@ def make_policy(
     kwargs = {}
     if ds_meta is not None:
         features = dataset_to_policy_features(ds_meta.features)
+        if not cfg.pretrained_path and hasattr(cfg, "raw_observation_state_feature_names") and OBS_STATE in ds_meta.features:
+            cfg.raw_observation_state_feature_names = list(ds_meta.features[OBS_STATE].get("names", []))
+        if not cfg.pretrained_path and hasattr(cfg, "raw_action_feature_names") and ACTION in ds_meta.features:
+            cfg.raw_action_feature_names = list(ds_meta.features[ACTION].get("names", []))
     else:
         if not cfg.pretrained_path:
             logging.warning(
