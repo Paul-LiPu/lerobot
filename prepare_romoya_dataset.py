@@ -69,6 +69,8 @@ def _build_config(policy_dict: dict[str, Any], dataset: LeRobotDataset) -> ACTRo
         output_features=output_features,
         device="cpu",
     )
+    cfg.raw_observation_state_feature_names = list(dataset.meta.features[OBS_STATE].get("names", []))
+    cfg.raw_action_feature_names = list(dataset.meta.features[ACTION].get("names", []))
     cfg.validate_features()
     return cfg
 

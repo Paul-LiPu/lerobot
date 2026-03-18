@@ -128,8 +128,7 @@ class ACTRomoyaConfig(ACTConfig):
 
         raw_state_shape = tuple(self.input_features[OBS_STATE].shape)
         valid_raw_state_shapes = {
-            (len(DEFAULT_ROMOYA_OBS_STATE_NAMES),),
-            (len(DEFAULT_ROMOYA_WIDE_OBS_STATE_NAMES),),
+            (len(self.raw_observation_state_feature_names),),
             (len(spec.state_feature_names),),
         }
         if raw_state_shape not in valid_raw_state_shapes:
@@ -140,9 +139,7 @@ class ACTRomoyaConfig(ACTConfig):
 
         raw_action_shape = tuple(self.output_features[ACTION].shape)
         valid_raw_action_shapes = {
-            (len(DEFAULT_ROMOYA_ACTION_NAMES),),
-            (len(DEFAULT_ROMOYA_TCP_ACTION_NAMES),),
-            (len(DEFAULT_ROMOYA_TCP_APPENDED_ACTION_NAMES),),
+            (len(self.raw_action_feature_names),),
             (len(spec.action_feature_names),),
         }
         if raw_action_shape not in valid_raw_action_shapes:
