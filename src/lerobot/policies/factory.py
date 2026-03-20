@@ -404,6 +404,23 @@ def make_pre_post_processors(
     return processors
 
 
+def _resolve_raw_feature_names_from_ds_meta(
+    cfg: PreTrainedConfig, ds_meta: LeRobotDatasetMetadata
+) -> tuple[list[str] | None, list[str] | None]:
+    romoya_prepare = ds_meta.info.get("romoya_prepare") if hasattr(ds_meta, "info") else None
+    raw_state_names = None
+    raw_action_names = None
+    if OBS_STATE in ds_meta.features:
+        if isinstance(romoya_prepare, dict):
+            raw_state_names = romoya_prepare.get("source_raw_observation_state_feature_names")
+        raw_state_names = list(raw_state_names or ds_meta.features[OBS_STATE].get("names", []))
+    if ACTION in ds_meta.features:
+        if isinstance(romoya_prepare, dict):
+            raw_action_names = romoya_prepare.get("source_raw_action_feature_names")
+        raw_action_names = list(raw_action_names or ds_meta.features[ACTION].get("names", []))
+    return raw_state_names, raw_action_names
+
+
 def make_policy(
     cfg: PreTrainedConfig,
     ds_meta: LeRobotDatasetMetadata | None = None,
@@ -457,10 +474,12 @@ def make_policy(
     kwargs = {}
     if ds_meta is not None:
         features = dataset_to_policy_features(ds_meta.features)
-        if not cfg.pretrained_path and hasattr(cfg, "raw_observation_state_feature_names") and OBS_STATE in ds_meta.features:
-            cfg.raw_observation_state_feature_names = list(ds_meta.features[OBS_STATE].get("names", []))
-        if not cfg.pretrained_path and hasattr(cfg, "raw_action_feature_names") and ACTION in ds_meta.features:
-            cfg.raw_action_feature_names = list(ds_meta.features[ACTION].get("names", []))
+        if not cfg.pretrained_path:
+            raw_state_names, raw_action_names = _resolve_raw_feature_names_from_ds_meta(cfg, ds_meta)
+            if hasattr(cfg, "raw_observation_state_feature_names") and OBS_STATE in ds_meta.features:
+                cfg.raw_observation_state_feature_names = list(raw_state_names or [])
+            if hasattr(cfg, "raw_action_feature_names") and ACTION in ds_meta.features:
+                cfg.raw_action_feature_names = list(raw_action_names or [])
     else:
         if not cfg.pretrained_path:
             logging.warning(

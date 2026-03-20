@@ -7,7 +7,7 @@ name = "lerobot_robot_romoya"
 version = "0.1.0"
 description = "Custom LeRobot plugin package for Romoya robots."
 requires-python = ">=3.12"
-dependencies = ["lerobot==0.5.1", "lebai-sdk==0.3.7", "pynput>=1.7.8,<1.9.0"]
+dependencies = ["lerobot==0.5.1", "lebai-sdk==0.3.7", "pynput>=1.7.8,<1.9.0", "nest_asyncio>=1.6.0,<2.0.0"]
 
 [tool.setuptools]
 include-package-data = true

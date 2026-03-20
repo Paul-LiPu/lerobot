@@ -41,7 +41,7 @@ class ACTRomoyaConfig(ACTConfig):
     do_action_names: list[str] = field(default_factory=lambda: ["DO_1"])
 
     raw_observation_state_feature_names: list[str] = field(
-        default_factory=lambda: list(DEFAULT_ROMOYA_OBS_STATE_NAMES)
+        default_factory=lambda: list(DEFAULT_ROMOYA_WIDE_OBS_STATE_NAMES)
     )
     raw_action_feature_names: list[str] = field(default_factory=lambda: list(DEFAULT_ROMOYA_ACTION_NAMES))
 

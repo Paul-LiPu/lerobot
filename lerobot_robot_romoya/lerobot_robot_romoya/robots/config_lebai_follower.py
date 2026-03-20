@@ -1,4 +1,5 @@
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from lerobot.cameras import CameraConfig
 from lerobot.robots import RobotConfig
@@ -22,6 +23,7 @@ class LebaiFollowerConfig(RobotConfig):
     use_effort: bool = True
     use_velocity: bool = True
     use_acceleration: bool = True
+    trace_path: Path | None = None
     cameras: dict[str, CameraConfig] = field(default_factory=dict)
 
 

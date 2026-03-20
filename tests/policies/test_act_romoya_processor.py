@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import json
+from pathlib import Path
+from types import SimpleNamespace
+
 import pandas as pd
 import pytest
 import torch
@@ -7,7 +11,8 @@ import torch
 import lerobot_robot_romoya  # noqa: F401
 from prepare_romoya_dataset import _transform_file
 from lerobot.configs.types import FeatureType, PolicyFeature
-from lerobot.policies.factory import make_pre_post_processors
+from lerobot.policies.factory import _resolve_raw_feature_names_from_ds_meta, make_pre_post_processors
+from repair_romoya_checkpoint_schema import _patch_processor_config, _patch_top_level_config
 from lerobot.utils.constants import ACTION, OBS_STATE
 from lerobot_robot_romoya.policies.configuration_act_romoya import (
     ABSOLUTE_ACTION_MODE,
@@ -268,3 +273,59 @@ def test_transform_file_rewrites_state_action_and_stats():
     assert transformed_df[ACTION].iloc[0] == [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 5.0, 0.0]
     assert tuple(stats[OBS_STATE]["mean"].shape) == (8,)
     assert tuple(stats[ACTION]["mean"].shape) == (8,)
+
+
+def test_factory_restores_raw_schemas_from_prepared_dataset_metadata():
+    cfg = _make_config(action_mode=ABSOLUTE_ACTION_MODE, state_shape=7, action_shape=7)
+    ds_meta = SimpleNamespace(
+        features={
+            OBS_STATE: {"names": list(cfg.state_feature_names), "shape": (7,)},
+            ACTION: {"names": list(cfg.action_feature_names), "shape": (7,)},
+        },
+        info={
+            "romoya_prepare": {
+                "source_raw_observation_state_feature_names": list(DEFAULT_ROMOYA_OBS_STATE_NAMES),
+                "source_raw_action_feature_names": list(DEFAULT_ROMOYA_ACTION_NAMES),
+            }
+        },
+    )
+    raw_state, raw_action = _resolve_raw_feature_names_from_ds_meta(cfg, ds_meta)
+    assert raw_state == list(DEFAULT_ROMOYA_OBS_STATE_NAMES)
+    assert raw_action == list(DEFAULT_ROMOYA_ACTION_NAMES)
+
+
+def test_repair_helpers_patch_saved_romoya_raw_schemas():
+    raw_state = list(DEFAULT_ROMOYA_OBS_STATE_NAMES)
+    raw_action = list(DEFAULT_ROMOYA_ACTION_NAMES)
+    config_data = {
+        "raw_observation_state_feature_names": ["joint1.pos"],
+        "raw_action_feature_names": ["joint1.pos"],
+        "state_feature_names": [*JOINT_ACTION_NAMES, "gripper.pos"],
+        "action_feature_names": [*JOINT_ACTION_NAMES, "gripper.pos"],
+    }
+    processor_data = {
+        "steps": [
+            {
+                "registry_name": "act_romoya_preprocess_v1",
+                "config": {
+                    "raw_observation_state_feature_names": ["joint1.pos"],
+                    "raw_action_feature_names": ["joint1.pos"],
+                },
+            },
+            {
+                "registry_name": "act_romoya_postprocess_v1",
+                "config": {
+                    "raw_observation_state_feature_names": ["joint1.pos"],
+                    "raw_action_feature_names": ["joint1.pos"],
+                },
+            },
+        ]
+    }
+    patched_config = _patch_top_level_config(config_data, raw_state, raw_action)
+    patched_processor = _patch_processor_config(processor_data, raw_state, raw_action)
+    assert patched_config["raw_observation_state_feature_names"] == raw_state
+    assert patched_config["raw_action_feature_names"] == raw_action
+    for step in patched_processor["steps"]:
+        if step["registry_name"].startswith("act_romoya_"):
+            assert step["config"]["raw_observation_state_feature_names"] == raw_state
+            assert step["config"]["raw_action_feature_names"] == raw_action

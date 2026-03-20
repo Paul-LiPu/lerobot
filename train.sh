@@ -143,6 +143,9 @@ romoya_prepare = info.get("romoya_prepare") or {}
 if romoya_prepare.get("source_repo_id") != src_repo_id:
     print("stale")
     raise SystemExit(0)
+if not romoya_prepare.get("source_raw_observation_state_feature_names") or not romoya_prepare.get("source_raw_action_feature_names"):
+    print("stale")
+    raise SystemExit(0)
 
 def eq(key):
     return romoya_prepare.get(key) == expected.get(key)

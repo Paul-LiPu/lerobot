@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+import os
 from dataclasses import dataclass
 from typing import Any
 
@@ -30,6 +32,8 @@ from .romoya_transforms import (
     select_and_transform_action,
     select_and_transform_state,
 )
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -258,6 +262,16 @@ class ACTRomoyaPostprocessStep(ProcessorStep):
             action = action.clone()
             do_idx = self._spec.action_feature_names.index("DO_1")
             action[..., do_idx] = torch.sigmoid(action[..., do_idx])
+
+        if os.getenv("ROMOYA_DEBUG_DO1", "").lower() in {"1", "true", "yes", "on"} and "DO_1" in self._spec.action_feature_names:
+            do_idx = self._spec.action_feature_names.index("DO_1")
+            do_value = float(action.reshape(-1, action.shape[-1])[0, do_idx].detach().cpu().item())
+            logger.info(
+                "Romoya predicted DO_1=%.6f threshold=%.3f output=%d",
+                do_value,
+                self.do_threshold,
+                int(do_value >= self.do_threshold),
+            )
 
         binary_action = []
         for name, spec in zip(self._spec.action_feature_names, self._spec.binary_action, strict=True):

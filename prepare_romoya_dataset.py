@@ -194,6 +194,8 @@ def main() -> None:
         "delta_action": list(cfg.delta_action),
         "control_schema": cfg.control_schema,
         "source_repo_id": args.src_repo_id,
+        "source_raw_observation_state_feature_names": list(cfg.raw_observation_state_feature_names),
+        "source_raw_action_feature_names": list(cfg.raw_action_feature_names),
     }
     write_info(new_meta.info, new_meta.root)
 

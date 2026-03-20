@@ -15,21 +15,46 @@ set -euo pipefail
 #   - Arg 4: initial pose path
 #   - HF_USER is detected automatically from `hf auth whoami`
 
-DEFAULT_EVAL_DATASET_NAME="eval_lebai_act_romoya_sunction_plate"
-DEFAULT_SINGLE_TASK="pick up the plate using suction cup"
+DEFAULT_EVAL_DATASET_NAME="eval_lebai_act_romoya_grip_black_taped_box"
+# DEFAULT_SINGLE_TASK="pick up the plate using suction cup"
+DEFAULT_SINGLE_TASK="Grab the ingredient box with gripper"
 # DEFAULT_POLICY_NAME="act_sjadj_lebai-suction-plate"
 # DEFAULT_POLICY_NAME="act_sjadj_lebai-suction-plate_side"
-DEFAULT_POLICY_NAME="act_sjaj_lebai-suction-plate_side"
-DEFAULT_N_ACTION_STEPS=1
+# DEFAULT_POLICY_NAME="act_sjaj_lebai-suction-plate_side"
+# DEFAULT_POLICY_NAME="act_sjaj_lebai-gripper-box"
+DEFAULT_POLICY_NAME="act_sjaj_lebai-gripper-black-tape-box"
+DEFAULT_N_ACTION_STEPS=30
 DEFAULT_NUM_EPISODES=10
 DEFAULT_EPISODE_TIME_S=60
 DEFAULT_RESET_TIME_S=60
+DEFAULT_DEBUG_DO1=0
+CAMERA_RESOLUTION="${CAMERA_RESOLUTION:-360p}"
+
+case "${CAMERA_RESOLUTION}" in
+  1080p)
+    CAMERA_WIDTH=1920
+    CAMERA_HEIGHT=1080
+    ;;
+  720p)
+    CAMERA_WIDTH=1280
+    CAMERA_HEIGHT=720
+    ;;
+  360p)
+    CAMERA_WIDTH=640
+    CAMERA_HEIGHT=360
+    ;;
+  *)
+    echo "Unsupported CAMERA_RESOLUTION '${CAMERA_RESOLUTION}'. Use one of: 1080p, 720p, 360p." >&2
+    exit 1
+    ;;
+esac
 
 EVAL_DATASET_NAME="${1:-${DEFAULT_EVAL_DATASET_NAME}}"
 SINGLE_TASK="${2:-${DEFAULT_SINGLE_TASK}}"
 POLICY_NAME="${3:-${DEFAULT_POLICY_NAME}}"
 INITIAL_POSE_PATH_ARG="${4:-}"
-DEFAULT_INITIAL_POSE_PATH="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/initial_pose_lebai-suction-plate_25.json"
+# DEFAULT_INITIAL_POSE_PATH="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/initial_pose_lebai-suction-plate_25.json"
+DEFAULT_INITIAL_POSE_PATH="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/initial_pose_lebai-gripper-box_0.json"
 INITIAL_POSE_PATH="${INITIAL_POSE_PATH_ARG:-${INITIAL_POSE_PATH:-${DEFAULT_INITIAL_POSE_PATH}}}"
 
 HF_USER=$(
@@ -60,13 +85,17 @@ if [[ -n "${INITIAL_POSE_PATH}" ]]; then
   EXTRA_ARGS+=(--initial_pose_path="${INITIAL_POSE_PATH}")
 fi
 
-uv run --extra romoya lerobot-record \
+bash setup_cams.sh "${CAMERA_WIDTH}" "${CAMERA_HEIGHT}"
+
+  # --resume=true \
+  #   --robot.gripper_closed_position=82.0 \
+ROMOYA_DEBUG_DO1="${DEFAULT_DEBUG_DO1}" uv run --extra romoya lerobot-record \
   --dataset.fps=30 \
   --robot.type=romoya_lebai_follower \
   --robot.ip=192.168.50.172 \
   --robot.id=lebai_follower_arm \
-  --robot.cameras='{ wrist: {type: opencv, index_or_path: /dev/cam_wrist, width: 640, height: 360, fps: 30, fourcc: MJPG}, top: {type: opencv, index_or_path: /dev/cam_top, width: 640, height: 360, fps: 30, fourcc: MJPG}, side: {type: opencv, index_or_path: /dev/cam_side, width: 640, height: 360, fps: 30, fourcc: MJPG}}' \
-  --robot.gripper_closed_position=82.0 \
+  --robot.trace_path=infer-trace.json \
+  --robot.cameras="{ wrist: {type: opencv, index_or_path: /dev/cam_wrist, width: ${CAMERA_WIDTH}, height: ${CAMERA_HEIGHT}, fps: 30, fourcc: MJPG}, top: {type: opencv, index_or_path: /dev/cam_top, width: ${CAMERA_WIDTH}, height: ${CAMERA_HEIGHT}, fps: 30, fourcc: MJPG}, side: {type: opencv, index_or_path: /dev/cam_side, width: ${CAMERA_WIDTH}, height: ${CAMERA_HEIGHT}, fps: 30, fourcc: MJPG}}" \
   --robot.gripper_force=100 \
   --robot.acceleration=1.0 \
   --robot.velocity=1.0 \
@@ -84,5 +113,6 @@ uv run --extra romoya lerobot-record \
   --dataset.streaming_encoding=true \
   --dataset.encoder_threads=4 \
   --policy.path="${POLICY_PATH}" \
+  --policy.do_threshold=0.5 \
   --policy.n_action_steps="${DEFAULT_N_ACTION_STEPS}" \
   "${EXTRA_ARGS[@]}"

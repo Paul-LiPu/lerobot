@@ -1,13 +1,35 @@
 from collections.abc import Mapping
 import importlib
+import logging
 import os
 from typing import Any
 
 JOINT_COUNT = 6
 TCP_KEYS = ("x", "y", "z", "rx", "ry", "rz")
+_NEST_ASYNCIO_APPLIED = False
+logger = logging.getLogger(__name__)
+
+
+def apply_nest_asyncio() -> None:
+    global _NEST_ASYNCIO_APPLIED
+    if _NEST_ASYNCIO_APPLIED:
+        return
+
+    try:
+        nest_asyncio = importlib.import_module("nest_asyncio")
+    except ModuleNotFoundError:
+        raise ModuleNotFoundError(
+            "The Romoya Lebai plugin requires 'nest_asyncio' for Lebai SDK compatibility. "
+            "Install the Romoya plugin dependencies again so 'nest_asyncio' is available."
+        )
+
+    nest_asyncio.apply()
+    _NEST_ASYNCIO_APPLIED = True
+    logger.info("Applied nest_asyncio for Lebai SDK compatibility.")
 
 
 def get_lebai_sdk() -> Any:
+    apply_nest_asyncio()
     try:
         return importlib.import_module("lebai_sdk")
     except ModuleNotFoundError as exc:

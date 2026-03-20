@@ -71,6 +71,7 @@ import json
 import logging
 import sys
 import time
+from contextlib import nullcontext
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from pprint import pformat
@@ -144,6 +145,7 @@ from lerobot.utils.control_utils import (
     sanity_check_dataset_name,
     sanity_check_dataset_robot_compatibility,
 )
+from lerobot.utils.chrome_trace import ChromeTraceRecorder
 from lerobot.utils.device_utils import get_safe_torch_device
 from lerobot.utils.import_utils import register_third_party_plugins
 from lerobot.utils.robot_utils import precise_sleep
@@ -390,6 +392,8 @@ class RecordConfig:
     initial_pose_path: str | Path | None = None
     # Whether save events should immediately overwrite the initial pose JSON when configured.
     autosave_initial_pose: bool = True
+    # Optional chrome trace json output for profiling the record loop.
+    trace_path: str | Path | None = None
 
     def __post_init__(self):
         # HACK: We parse again the cli args here to get the pretrained path if there was one.
@@ -467,6 +471,7 @@ def record_loop(
     saved_reset_state_ref: dict[str, dict[str, float] | None] | None = None,
     initial_pose_path: str | Path | None = None,
     autosave_initial_pose: bool = True,
+    trace_recorder: ChromeTraceRecorder | None = None,
 ):
     if dataset is not None and dataset.fps != fps:
         raise ValueError(f"The dataset fps should be equal to requested fps ({dataset.fps} != {fps}).")
@@ -508,6 +513,11 @@ def record_loop(
     duration_s = float(control_time_s) if control_time_s is not None else float("nan")
     banner = "=" * 72
 
+    def trace_span(name: str, args: dict[str, Any] | None = None):
+        if trace_recorder is None or not trace_recorder.enabled:
+            return nullcontext()
+        return trace_recorder.span(name, args=args, category="record")
+
     def emit_phase_banner() -> None:
         sys.stdout.write(
             f"\n{banner}\n"
@@ -525,14 +535,16 @@ def record_loop(
     while timestamp < control_time_s:
         start_loop_t = time.perf_counter()
 
-        _poll_teleop_control_events(teleop, events)
+        with trace_span("loop.poll_events"):
+            _poll_teleop_control_events(teleop, events)
 
         if events["exit_early"]:
             events["exit_early"] = False
             break
 
         # Get robot observation
-        obs = robot.get_observation()
+        with trace_span("loop.get_observation"):
+            obs = robot.get_observation()
         if saved_reset_state_ref is not None:
             if events.get("save_reset_state", False):
                 saved_reset_state_ref["value"] = _capture_reset_state_from_observation(obs)
@@ -556,41 +568,52 @@ def record_loop(
                     continue
 
         # Applies a pipeline to the raw robot observation, default is IdentityProcessor
-        obs_processed = robot_observation_processor(obs)
+        with trace_span("loop.process_observation"):
+            obs_processed = robot_observation_processor(obs)
 
         if policy is not None or dataset is not None:
-            observation_frame = build_dataset_frame(dataset.features, obs_processed, prefix=OBS_STR)
+            with trace_span("loop.build_observation_frame"):
+                observation_frame = build_dataset_frame(dataset.features, obs_processed, prefix=OBS_STR)
 
         # Get action from either policy or teleop
         if policy is not None and preprocessor is not None and postprocessor is not None:
-            action_values = predict_action(
-                observation=observation_frame,
-                policy=policy,
-                device=get_safe_torch_device(policy.config.device),
-                preprocessor=preprocessor,
-                postprocessor=postprocessor,
-                use_amp=policy.config.use_amp,
-                task=single_task,
-                robot_type=robot.robot_type,
-            )
+            with trace_span("loop.predict_action"):
+                action_values = predict_action(
+                    observation=observation_frame,
+                    policy=policy,
+                    device=get_safe_torch_device(policy.config.device),
+                    preprocessor=preprocessor,
+                    postprocessor=postprocessor,
+                    use_amp=policy.config.use_amp,
+                    task=single_task,
+                    robot_type=robot.robot_type,
+                )
 
-            act_processed_policy: RobotAction = make_robot_action(action_values, dataset.features)
+            with trace_span("loop.make_robot_action"):
+                act_processed_policy = make_robot_action(action_values, dataset.features)
 
         elif policy is None and isinstance(teleop, Teleoperator):
             if robot.name == "unitree_g1":
-                teleop.send_feedback(obs)
-            act = teleop.get_action()
+                with trace_span("loop.teleop_feedback"):
+                    teleop.send_feedback(obs)
+            with trace_span("loop.teleop_get_action"):
+                act = teleop.get_action()
 
             # Applies a pipeline to the raw teleop action, default is IdentityProcessor
-            act_processed_teleop = teleop_action_processor((act, obs))
+            with trace_span("loop.process_teleop_action"):
+                act_processed_teleop = teleop_action_processor((act, obs))
 
         elif policy is None and isinstance(teleop, list):
-            arm_action = teleop_arm.get_action()
+            with trace_span("loop.teleop_arm_get_action"):
+                arm_action = teleop_arm.get_action()
             arm_action = {f"arm_{k}": v for k, v in arm_action.items()}
-            keyboard_action = teleop_keyboard.get_action()
-            base_action = robot._from_keyboard_to_base_action(keyboard_action)
+            with trace_span("loop.teleop_keyboard_get_action"):
+                keyboard_action = teleop_keyboard.get_action()
+            with trace_span("loop.keyboard_to_base_action"):
+                base_action = robot._from_keyboard_to_base_action(keyboard_action)
             act = {**arm_action, **base_action} if len(base_action) > 0 else arm_action
-            act_processed_teleop = teleop_action_processor((act, obs))
+            with trace_span("loop.process_teleop_action"):
+                act_processed_teleop = teleop_action_processor((act, obs))
         else:
             no_action_count += 1
             if no_action_count == 1 or no_action_count % 10 == 0:
@@ -604,27 +627,33 @@ def record_loop(
         # Applies a pipeline to the action, default is IdentityProcessor
         if policy is not None and act_processed_policy is not None:
             action_values = act_processed_policy
-            robot_action_to_send = robot_action_processor((act_processed_policy, obs))
+            with trace_span("loop.process_robot_action"):
+                robot_action_to_send = robot_action_processor((act_processed_policy, obs))
         else:
             action_values = act_processed_teleop
-            robot_action_to_send = robot_action_processor((act_processed_teleop, obs))
+            with trace_span("loop.process_robot_action"):
+                robot_action_to_send = robot_action_processor((act_processed_teleop, obs))
 
         # Send action to robot
         # Action can eventually be clipped using `max_relative_target`,
         # so action actually sent is saved in the dataset. action = postprocessor.process(action)
         # TODO(steven, pepijn, adil): we should use a pipeline step to clip the action, so the sent action is the action that we input to the robot.
-        _sent_action = robot.send_action(robot_action_to_send)
+        with trace_span("loop.send_action"):
+            _sent_action = robot.send_action(robot_action_to_send)
 
         # Write to dataset
         if dataset is not None:
-            action_frame = build_dataset_frame(dataset.features, action_values, prefix=ACTION)
+            with trace_span("loop.build_action_frame"):
+                action_frame = build_dataset_frame(dataset.features, action_values, prefix=ACTION)
             frame = {**observation_frame, **action_frame, "task": single_task}
-            dataset.add_frame(frame)
+            with trace_span("loop.dataset_add_frame"):
+                dataset.add_frame(frame)
 
         if display_data:
-            log_rerun_data(
-                observation=obs_processed, action=action_values, compress_images=display_compressed_images
-            )
+            with trace_span("loop.display"):
+                log_rerun_data(
+                    observation=obs_processed, action=action_values, compress_images=display_compressed_images
+                )
 
         dt_s = time.perf_counter() - start_loop_t
 
@@ -658,6 +687,8 @@ def record(cfg: RecordConfig) -> LeRobotDataset:
     teleop = make_teleoperator_from_config(cfg.teleop) if cfg.teleop is not None else None
 
     teleop_action_processor, robot_action_processor, robot_observation_processor = make_default_processors()
+    trace_recorder = ChromeTraceRecorder(cfg.trace_path, process_name="lerobot-record")
+    trace_recorder.set_thread_name("record-main")
 
     record_action_features = _get_record_action_features(robot, teleop, has_policy=cfg.policy is not None)
     dataset_features = combine_feature_dicts(
@@ -770,6 +801,7 @@ def record(cfg: RecordConfig) -> LeRobotDataset:
                     saved_reset_state_ref=saved_reset_state_ref,
                     initial_pose_path=cfg.initial_pose_path,
                     autosave_initial_pose=cfg.autosave_initial_pose,
+                    trace_recorder=trace_recorder,
                 )
             while recorded_episodes < cfg.dataset.num_episodes and not events["stop_recording"]:
                 log_say(f"Recording episode {dataset.num_episodes}", cfg.play_sounds)
@@ -793,6 +825,7 @@ def record(cfg: RecordConfig) -> LeRobotDataset:
                     saved_reset_state_ref=saved_reset_state_ref,
                     initial_pose_path=cfg.initial_pose_path,
                     autosave_initial_pose=cfg.autosave_initial_pose,
+                    trace_recorder=trace_recorder,
                 )
 
                 # Execute a few seconds without recording to give time to manually reset the environment
@@ -817,6 +850,7 @@ def record(cfg: RecordConfig) -> LeRobotDataset:
                         saved_reset_state_ref=saved_reset_state_ref,
                         initial_pose_path=cfg.initial_pose_path,
                         autosave_initial_pose=cfg.autosave_initial_pose,
+                        trace_recorder=trace_recorder,
                     )
 
                 if events["rerecord_episode"]:
@@ -855,6 +889,7 @@ def record(cfg: RecordConfig) -> LeRobotDataset:
         if not is_headless() and listener:
             listener.stop()
 
+        trace_recorder.close()
         if completed_successfully and dataset and cfg.dataset.push_to_hub:
             dataset.push_to_hub(tags=cfg.dataset.tags, private=cfg.dataset.private)
 
