@@ -4,31 +4,42 @@ set -euo pipefail
 # Usage:
 #   bash train.sh
 #   bash train.sh my-dataset
+#   bash train.sh repo1,repo2,repo3
 #   bash train.sh my-dataset my-policy
 #   bash train.sh my-dataset my-policy my-run-name
 #
 # Notes:
-#   - Arg 1: dataset name or full repo id
+#   - Arg 1: dataset name, full repo id, or comma-separated repo ids
 #   - Arg 2: policy repo name or full repo id
 #   - Arg 3: local output/job name
 #   - HF_USER is detected automatically from `hf auth whoami`
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CONFIG_PATH="${TRAIN_CONFIG_PATH:-${SCRIPT_DIR}/train_act_config_abs.json}"
+# CONFIG_PATH="${TRAIN_CONFIG_PATH:-${SCRIPT_DIR}/train_act_config_abs.json}"
+CONFIG_PATH="${TRAIN_CONFIG_PATH:-${SCRIPT_DIR}/train_pi05_romoya_config.json}"
 
-DEFAULT_DATASET_NAME="lebai-gripper-black-tape-box"
-DEFAULT_POLICY_REPO_NAME="act_sjaj_lebai-gripper-black-tape-box"
-DEFAULT_OUTPUT_NAME="act_sjaj_lebai-gripper-black-tape-box"
-DEFAULT_POLICY_TYPE="act_romoya"
+DEFAULT_DATASET_REPOS=(
+  "PL2011/lebai-open-fridge-door"
+  "PL2011/lebai-gripper-plate"
+  "PL2011/lebai-gripper-black-taped-box-2"
+)
+DEFAULT_POLICY_REPO_NAME="pi05_sjaj_gripper-box-plate-fdoor"
+DEFAULT_OUTPUT_NAME="pi05_sjaj_gripper-box-plate-fdoor"
+DEFAULT_POLICY_TYPE="pi05_romoya"
 DEFAULT_DEVICE="cuda"
 DEFAULT_STEPS=40000
-DEFAULT_BATCH_SIZE=48
+DEFAULT_BATCH_SIZE=24
 DEFAULT_NUM_WORKERS=12
 DEFAULT_WANDB_ENABLE="true"
 
-DATASET_NAME="${1:-${DEFAULT_DATASET_NAME}}"
+DATASET_SPEC="${1:-}"
 POLICY_REPO_NAME="${2:-${DEFAULT_POLICY_REPO_NAME}}"
 OUTPUT_NAME="${3:-${DEFAULT_OUTPUT_NAME}}"
+
+UV_EXTRA_ARGS=(--extra romoya)
+if [[ "${DEFAULT_POLICY_TYPE}" == "pi05" || "${DEFAULT_POLICY_TYPE}" == "pi05_romoya" ]]; then
+  UV_EXTRA_ARGS+=(--extra pi)
+fi
 
 HF_USER=$(
   hf auth whoami \
@@ -50,10 +61,113 @@ if [[ "${DEFAULT_WANDB_ENABLE}" == "true" ]]; then
   fi
 fi
 
-if [[ "${DATASET_NAME}" == */* ]]; then
-  DATASET_REPO_ID="${DATASET_NAME}"
+resolve_repo_id() {
+  local value="$1"
+  if [[ "${value}" == */* ]]; then
+    printf '%s\n' "${value}"
+  else
+    printf '%s\n' "${HF_USER}/${value}"
+  fi
+}
+
+DATASET_INPUTS=()
+if [[ -z "${DATASET_SPEC}" ]]; then
+  DATASET_INPUTS=("${DEFAULT_DATASET_REPOS[@]}")
+elif [[ "${DATASET_SPEC}" == *,* ]]; then
+  IFS=',' read -r -a DATASET_INPUTS <<< "${DATASET_SPEC}"
 else
-  DATASET_REPO_ID="${HF_USER}/${DATASET_NAME}"
+  DATASET_INPUTS=("${DATASET_SPEC}")
+fi
+
+DATASET_REPO_IDS=()
+for dataset_input in "${DATASET_INPUTS[@]}"; do
+  dataset_input="${dataset_input//[[:space:]]/}"
+  if [[ -z "${dataset_input}" ]]; then
+    continue
+  fi
+  DATASET_REPO_IDS+=("$(resolve_repo_id "${dataset_input}")")
+done
+
+if [[ "${#DATASET_REPO_IDS[@]}" -eq 0 ]]; then
+  echo "No datasets resolved for training." >&2
+  exit 1
+fi
+
+ROMOYA_MERGED_DATASET_ROOT="${ROMOYA_MERGED_DATASET_ROOT:-}"
+FINAL_DATASET_ROOT=""
+
+if [[ "${#DATASET_REPO_IDS[@]}" -eq 1 ]]; then
+  DATASET_REPO_ID="${DATASET_REPO_IDS[0]}"
+else
+  DATASET_REPO_ID="${ROMOYA_MERGED_DATASET_REPO_ID:-${HF_USER}/dataset_merged}"
+
+  MERGED_MATCH="$(
+    python3 - "${DATASET_REPO_ID}" "${ROMOYA_MERGED_DATASET_ROOT}" "${DATASET_REPO_IDS[@]}" <<'PY'
+import json
+import os
+import sys
+from pathlib import Path
+
+merged_repo_id = sys.argv[1]
+merged_root_override = sys.argv[2] or None
+source_repo_ids = sys.argv[3:]
+
+if merged_root_override:
+    dataset_root = Path(merged_root_override)
+else:
+    hf_home = Path(os.getenv("HF_HOME", str(Path.home() / ".cache" / "huggingface")))
+    hf_lerobot_home = Path(os.getenv("HF_LEROBOT_HOME", str(hf_home / "lerobot")))
+    dataset_root = hf_lerobot_home / merged_repo_id
+
+info_path = dataset_root / "meta" / "info.json"
+stats_path = dataset_root / "meta" / "stats.json"
+if not info_path.is_file() or not stats_path.is_file():
+    print("missing")
+    raise SystemExit(0)
+
+info = json.loads(info_path.read_text())
+romoya_merge = info.get("romoya_merge") or {}
+if romoya_merge.get("source_repo_ids") == source_repo_ids:
+    print("match")
+else:
+    print("stale")
+PY
+  )"
+
+  if [[ "${MERGED_MATCH}" != "match" ]]; then
+    echo "Merging training datasets into ${DATASET_REPO_ID}"
+    uv run "${UV_EXTRA_ARGS[@]}" python - "${DATASET_REPO_ID}" "${ROMOYA_MERGED_DATASET_ROOT}" "${DATASET_REPO_IDS[@]}" <<'PY'
+import json
+import os
+import sys
+from pathlib import Path
+
+from lerobot.datasets.dataset_tools import merge_datasets
+from lerobot.datasets.io_utils import write_info
+from lerobot.datasets.lerobot_dataset import LeRobotDataset
+
+merged_repo_id = sys.argv[1]
+merged_root_override = sys.argv[2] or None
+source_repo_ids = sys.argv[3:]
+
+datasets = [LeRobotDataset(repo_id) for repo_id in source_repo_ids]
+merged_dataset = merge_datasets(
+    datasets,
+    output_repo_id=merged_repo_id,
+    output_dir=Path(merged_root_override) if merged_root_override else None,
+)
+merged_dataset.meta.info["romoya_merge"] = {
+    "source_repo_ids": source_repo_ids,
+}
+write_info(merged_dataset.meta.info, merged_dataset.root)
+PY
+  else
+    echo "Reusing merged dataset: ${DATASET_REPO_ID}"
+  fi
+
+  if [[ -n "${ROMOYA_MERGED_DATASET_ROOT}" ]]; then
+    FINAL_DATASET_ROOT="${ROMOYA_MERGED_DATASET_ROOT}"
+  fi
 fi
 
 if [[ "${POLICY_REPO_NAME}" == */* ]]; then
@@ -67,10 +181,6 @@ JOB_NAME="${OUTPUT_NAME}"
 
 ROMOYA_PREPARED_DATASET_REPO_ID="${ROMOYA_PREPARED_DATASET_REPO_ID:-${DATASET_REPO_ID}_romoya_prepared}"
 ROMOYA_PREPARED_DATASET_ROOT="${ROMOYA_PREPARED_DATASET_ROOT:-}"
-DATASET_ROOT_CLI_ARGS=()
-if [[ -n "${ROMOYA_PREPARED_DATASET_ROOT}" ]]; then
-  DATASET_ROOT_CLI_ARGS+=(--dataset.root="${ROMOYA_PREPARED_DATASET_ROOT}")
-fi
 
 ROMOYA_PREPARE_MODE="$(
   python3 - "$CONFIG_PATH" <<'PY'
@@ -80,7 +190,7 @@ from pathlib import Path
 
 payload = json.loads(Path(sys.argv[1]).read_text())
 policy = payload.get("policy", payload)
-if policy.get("type") != "act_romoya":
+if policy.get("type") not in {"act_romoya", "pi05_romoya"}:
     print("none")
     raise SystemExit(0)
 
@@ -179,19 +289,32 @@ PY
         --dst-repo-id "${ROMOYA_PREPARED_DATASET_REPO_ID}"
         --config-path "${CONFIG_PATH}"
       )
+      if [[ -n "${FINAL_DATASET_ROOT}" ]]; then
+        PREPARE_ARGS+=(--src-root "${FINAL_DATASET_ROOT}")
+      fi
       if [[ -n "${ROMOYA_PREPARED_DATASET_ROOT}" ]]; then
         PREPARE_ARGS+=(--dst-root "${ROMOYA_PREPARED_DATASET_ROOT}")
       fi
-      uv run --extra romoya python prepare_romoya_dataset.py "${PREPARE_ARGS[@]}"
+      uv run "${UV_EXTRA_ARGS[@]}" python prepare_romoya_dataset.py "${PREPARE_ARGS[@]}"
     else
       echo "Reusing prepared Romoya dataset: ${ROMOYA_PREPARED_DATASET_REPO_ID}"
     fi
 
     DATASET_REPO_ID="${ROMOYA_PREPARED_DATASET_REPO_ID}"
+    if [[ -n "${ROMOYA_PREPARED_DATASET_ROOT}" ]]; then
+      FINAL_DATASET_ROOT="${ROMOYA_PREPARED_DATASET_ROOT}"
+    else
+      FINAL_DATASET_ROOT=""
+    fi
   fi
 fi
 
-python3 - "$DATASET_REPO_ID" "${ROMOYA_PREPARED_DATASET_ROOT}" <<'PY'
+DATASET_ROOT_CLI_ARGS=()
+if [[ -n "${FINAL_DATASET_ROOT}" ]]; then
+  DATASET_ROOT_CLI_ARGS+=(--dataset.root="${FINAL_DATASET_ROOT}")
+fi
+
+python3 - "$DATASET_REPO_ID" "${FINAL_DATASET_ROOT}" "${DATASET_REPO_IDS[@]}" <<'PY'
 import json
 import os
 import sys
@@ -199,6 +322,7 @@ from pathlib import Path
 
 dataset_repo_id = sys.argv[1]
 dataset_root_override = sys.argv[2] or None
+source_repo_ids = sys.argv[3:]
 if dataset_root_override:
     dataset_root = Path(dataset_root_override)
 else:
@@ -233,6 +357,10 @@ def print_vector_stats(key: str) -> None:
 
 print(f"Training dataset: {dataset_repo_id}")
 print(f"Dataset root: {dataset_root}")
+if source_repo_ids:
+    print("Source datasets:")
+    for repo_id in source_repo_ids:
+        print(f"  - {repo_id}")
 romoya_prepare = info.get("romoya_prepare")
 if romoya_prepare is not None:
     print(f"Prepared dataset source: {romoya_prepare.get('source_repo_id')}")
@@ -240,7 +368,7 @@ print_vector_stats("observation.state")
 print_vector_stats("action")
 PY
 
-uv run --extra romoya lerobot-train \
+uv run "${UV_EXTRA_ARGS[@]}" lerobot-train \
   --config_path="${CONFIG_PATH}" \
   --dataset.repo_id="${DATASET_REPO_ID}" \
   "${DATASET_ROOT_CLI_ARGS[@]}" \

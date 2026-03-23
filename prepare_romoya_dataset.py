@@ -19,6 +19,7 @@ from lerobot.datasets.io_utils import write_info, write_stats
 from lerobot.datasets.lerobot_dataset import LeRobotDataset
 from lerobot.utils.constants import ACTION, OBS_STATE
 from lerobot_robot_romoya.policies.configuration_act_romoya import ACTRomoyaConfig
+from lerobot_robot_romoya.policies.configuration_pi05_romoya import PI05RomoyaConfig
 from lerobot_robot_romoya.policies.romoya_transforms import (
     tensor_to_python_lists,
 )
@@ -31,7 +32,15 @@ def _load_policy_dict(path: Path) -> dict[str, Any]:
     return payload
 
 
-def _build_config(policy_dict: dict[str, Any], dataset: LeRobotDataset) -> ACTRomoyaConfig:
+def _make_policy_config(policy_type: str, policy_kwargs: dict[str, Any]):
+    if policy_type == "act_romoya":
+        return ACTRomoyaConfig(**policy_kwargs)
+    if policy_type == "pi05_romoya":
+        return PI05RomoyaConfig(**policy_kwargs)
+    raise ValueError(f"Unsupported Romoya policy type for dataset prep: {policy_type}")
+
+
+def _build_config(policy_dict: dict[str, Any], dataset: LeRobotDataset):
     config_input_features = dict(policy_dict.get("input_features", {}))
     for key, feature in config_input_features.items():
         if isinstance(feature, dict) and feature.get("type") == "STATE":
@@ -46,6 +55,7 @@ def _build_config(policy_dict: dict[str, Any], dataset: LeRobotDataset) -> ACTRo
             )
 
     policy_dict = dict(policy_dict)
+    policy_type = policy_dict.pop("type", None)
     policy_dict.pop("type", None)
     policy_dict.pop("input_features", None)
     policy_dict.pop("output_features", None)
@@ -63,11 +73,14 @@ def _build_config(policy_dict: dict[str, Any], dataset: LeRobotDataset) -> ACTRo
             shape=tuple(dataset.meta.features[ACTION]["shape"]),
         )
     }
-    cfg = ACTRomoyaConfig(
-        **policy_dict,
-        input_features=input_features,
-        output_features=output_features,
-        device="cpu",
+    cfg = _make_policy_config(
+        policy_type,
+        dict(
+            policy_dict,
+            input_features=input_features,
+            output_features=output_features,
+            device="cpu",
+        ),
     )
     cfg.raw_observation_state_feature_names = list(dataset.meta.features[OBS_STATE].get("names", []))
     cfg.raw_action_feature_names = list(dataset.meta.features[ACTION].get("names", []))
@@ -136,8 +149,8 @@ def main() -> None:
         download_videos=not args.skip_videos,
     )
     policy_dict = _load_policy_dict(Path(args.config_path))
-    if policy_dict.get("type") != "act_romoya":
-        raise ValueError("prepare_romoya_dataset.py only supports policy.type=act_romoya.")
+    if policy_dict.get("type") not in {"act_romoya", "pi05_romoya"}:
+        raise ValueError("prepare_romoya_dataset.py only supports policy.type=act_romoya or policy.type=pi05_romoya.")
     cfg = _build_config(policy_dict, dataset)
 
     new_features = copy.deepcopy(dataset.meta.features)
@@ -186,7 +199,7 @@ def main() -> None:
     write_stats(new_stats, new_meta.root)
 
     new_meta.info["romoya_prepare"] = {
-        "action_mode": cfg.action_mode,
+        "action_mode": getattr(cfg, "action_mode", None),
         "state_feature_names": list(cfg.state_feature_names),
         "action_feature_names": list(cfg.action_feature_names),
         "binary_state": list(cfg.binary_state),

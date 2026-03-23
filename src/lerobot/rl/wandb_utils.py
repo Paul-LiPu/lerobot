@@ -16,6 +16,7 @@
 import logging
 import os
 import re
+import hashlib
 from glob import glob
 from pathlib import Path
 
@@ -66,9 +67,15 @@ def get_wandb_run_id_from_filesystem(log_dir: Path) -> str:
     return wandb_run_id
 
 
-def get_safe_wandb_artifact_name(name: str):
-    """WandB artifacts don't accept ":" or "/" in their name."""
-    return name.replace(":", "_").replace("/", "_")
+def get_safe_wandb_artifact_name(name: str, max_length: int = 128):
+    """Return a WandB-safe artifact name within the service length limit."""
+    safe_name = name.replace(":", "_").replace("/", "_")
+    if len(safe_name) <= max_length:
+        return safe_name
+
+    digest = hashlib.sha1(safe_name.encode(), usedforsecurity=False).hexdigest()[:10]
+    keep = max_length - len(digest) - 1
+    return f"{safe_name[:keep]}-{digest}"
 
 
 class WandBLogger:

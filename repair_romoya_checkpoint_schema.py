@@ -38,7 +38,12 @@ def _patch_processor_config(data: dict, raw_state: list[str], raw_action: list[s
         config = step.get("config")
         if not isinstance(config, dict):
             continue
-        if step.get("registry_name") in {"act_romoya_preprocess_v1", "act_romoya_postprocess_v1"}:
+        if step.get("registry_name") in {
+            "act_romoya_preprocess_v1",
+            "act_romoya_postprocess_v1",
+            "pi05_romoya_preprocess_v1",
+            "pi05_romoya_postprocess_v1",
+        }:
             config["raw_observation_state_feature_names"] = list(raw_state)
             config["raw_action_feature_names"] = list(raw_action)
     return updated

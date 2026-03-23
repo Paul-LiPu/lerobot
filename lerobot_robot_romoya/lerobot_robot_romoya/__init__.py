@@ -1,4 +1,11 @@
-from .policies import ACTRomoyaConfig, ACTRomoyaPolicy, make_act_romoya_pre_post_processors
+from .policies import (
+    ACTRomoyaConfig,
+    ACTRomoyaPolicy,
+    PI05RomoyaConfig,
+    PI05RomoyaPolicy,
+    make_act_romoya_pre_post_processors,
+    make_pi05_romoya_pre_post_processors,
+)
 from .robots import (
     LebaiDeltaTcpFollower,
     LebaiDeltaTcpFollowerConfig,
@@ -28,5 +35,8 @@ __all__ = [
     "LebaiRobotConfig",
     "LebaiTcpFollower",
     "LebaiTcpFollowerConfig",
+    "PI05RomoyaConfig",
+    "PI05RomoyaPolicy",
     "make_act_romoya_pre_post_processors",
+    "make_pi05_romoya_pre_post_processors",
 ]
