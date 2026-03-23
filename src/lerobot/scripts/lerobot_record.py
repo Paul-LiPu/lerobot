@@ -71,6 +71,7 @@ import json
 import logging
 import sys
 import time
+import traceback
 from contextlib import nullcontext
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -311,6 +312,52 @@ def _get_record_action_features(
     return robot.action_features
 
 
+def _apply_manual_end_effector_override(
+    action: dict[str, Any] | PolicyAction,
+    teleop: Teleoperator | list[Teleoperator] | None,
+    action_feature_names: list[str] | None = None,
+) -> dict[str, Any] | PolicyAction:
+    teleops = teleop if isinstance(teleop, list) else [teleop]
+    if isinstance(action, dict):
+        overridden_action: dict[str, Any] | PolicyAction = dict(action)
+        action_name_to_index = None
+    else:
+        overridden_action = action.clone()
+        action_name_to_index = (
+            {name: idx for idx, name in enumerate(action_feature_names)} if action_feature_names is not None else {}
+        )
+
+    for teleop_device in teleops:
+        if teleop_device is None:
+            continue
+
+        if hasattr(teleop_device, "gripper_target"):
+            gripper_target = float(getattr(teleop_device, "gripper_target"))
+            if isinstance(overridden_action, dict):
+                if "gripper.pos" in overridden_action:
+                    overridden_action["gripper.pos"] = gripper_target
+            elif "gripper.pos" in action_name_to_index:
+                overridden_action[..., action_name_to_index["gripper.pos"]] = gripper_target
+
+        if hasattr(teleop_device, "do0_target"):
+            do0_target = float(getattr(teleop_device, "do0_target"))
+            if isinstance(overridden_action, dict):
+                if "DO_0" in overridden_action:
+                    overridden_action["DO_0"] = do0_target
+            elif "DO_0" in action_name_to_index:
+                overridden_action[..., action_name_to_index["DO_0"]] = do0_target
+
+        if hasattr(teleop_device, "do1_target"):
+            do1_target = float(getattr(teleop_device, "do1_target"))
+            if isinstance(overridden_action, dict):
+                if "DO_1" in overridden_action:
+                    overridden_action["DO_1"] = do1_target
+            elif "DO_1" in action_name_to_index:
+                overridden_action[..., action_name_to_index["DO_1"]] = do1_target
+
+    return overridden_action
+
+
 @dataclass
 class DatasetRecordConfig:
     # Dataset identifier. By convention it should match '{hf_username}/{dataset_name}' (e.g. `lerobot/test`).
@@ -394,6 +441,8 @@ class RecordConfig:
     autosave_initial_pose: bool = True
     # Optional chrome trace json output for profiling the record loop.
     trace_path: str | Path | None = None
+    # If True, teleop/gamepad gripper and DO targets override the policy end-effector outputs during inference.
+    teleop_end_effector_override: bool = False
 
     def __post_init__(self):
         # HACK: We parse again the cli args here to get the pretrained path if there was one.
@@ -463,6 +512,7 @@ def record_loop(
     policy: PreTrainedPolicy | None = None,
     preprocessor: PolicyProcessorPipeline[dict[str, Any], dict[str, Any]] | None = None,
     postprocessor: PolicyProcessorPipeline[PolicyAction, PolicyAction] | None = None,
+    teleop_end_effector_override: bool = False,
     control_time_s: int | None = None,
     single_task: str | None = None,
     phase_name: str = "recording",
@@ -588,6 +638,14 @@ def record_loop(
                     task=single_task,
                     robot_type=robot.robot_type,
                 )
+
+            if teleop_end_effector_override:
+                with trace_span("loop.manual_ee_override"):
+                    action_values = _apply_manual_end_effector_override(
+                        action_values,
+                        teleop,
+                        action_feature_names=dataset.features[ACTION]["names"] if dataset is not None else None,
+                    )
 
             with trace_span("loop.make_robot_action"):
                 act_processed_policy = make_robot_action(action_values, dataset.features)
@@ -802,6 +860,7 @@ def record(cfg: RecordConfig) -> LeRobotDataset:
                     initial_pose_path=cfg.initial_pose_path,
                     autosave_initial_pose=cfg.autosave_initial_pose,
                     trace_recorder=trace_recorder,
+                    teleop_end_effector_override=cfg.teleop_end_effector_override,
                 )
             while recorded_episodes < cfg.dataset.num_episodes and not events["stop_recording"]:
                 log_say(f"Recording episode {dataset.num_episodes}", cfg.play_sounds)
@@ -826,6 +885,7 @@ def record(cfg: RecordConfig) -> LeRobotDataset:
                     initial_pose_path=cfg.initial_pose_path,
                     autosave_initial_pose=cfg.autosave_initial_pose,
                     trace_recorder=trace_recorder,
+                    teleop_end_effector_override=cfg.teleop_end_effector_override,
                 )
 
                 # Execute a few seconds without recording to give time to manually reset the environment
@@ -851,6 +911,7 @@ def record(cfg: RecordConfig) -> LeRobotDataset:
                         initial_pose_path=cfg.initial_pose_path,
                         autosave_initial_pose=cfg.autosave_initial_pose,
                         trace_recorder=trace_recorder,
+                        teleop_end_effector_override=cfg.teleop_end_effector_override,
                     )
 
                 if events["rerecord_episode"]:
@@ -878,6 +939,7 @@ def record(cfg: RecordConfig) -> LeRobotDataset:
     except Exception as exc:
         exit_code = 1
         logging.exception("Recording stopped due to device/runtime error: %s", exc)
+        logging.error("Full traceback:\n%s", traceback.format_exc())
     finally:
         log_say("Stop recording", cfg.play_sounds, blocking=True)
 

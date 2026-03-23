@@ -326,6 +326,16 @@ def make_pre_post_processors(
             dataset_stats=kwargs.get("dataset_stats"),
         )
 
+    elif policy_cfg.__class__.__name__ == "PI05RomoyaConfig":
+        from lerobot_robot_romoya.policies.processor_pi05_romoya import (
+            make_pi05_romoya_pre_post_processors,
+        )
+
+        processors = make_pi05_romoya_pre_post_processors(
+            config=policy_cfg,
+            dataset_stats=kwargs.get("dataset_stats"),
+        )
+
     elif isinstance(policy_cfg, PI05Config):
         from lerobot.policies.pi05.processor_pi05 import make_pi05_pre_post_processors
 

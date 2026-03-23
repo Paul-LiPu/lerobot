@@ -86,11 +86,15 @@ class LeRobotDatasetMetadata:
         if not hasattr(self, "metadata_buffer") or len(self.metadata_buffer) == 0:
             return
 
-        combined_dict = {}
+        all_keys = sorted({key for episode_dict in self.metadata_buffer for key in episode_dict})
+        combined_dict = {key: [] for key in all_keys}
         for episode_dict in self.metadata_buffer:
-            for key, value in episode_dict.items():
-                if key not in combined_dict:
-                    combined_dict[key] = []
+            for key in all_keys:
+                value = episode_dict.get(key)
+                if value is None:
+                    combined_dict[key].append(None)
+                    continue
+
                 # Extract value and serialize numpy arrays
                 # because PyArrow's from_pydict function doesn't support numpy arrays
                 val = value[0] if isinstance(value, list) else value
