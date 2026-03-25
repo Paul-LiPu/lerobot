@@ -140,15 +140,15 @@
       },
       "observation.images.wrist": {
         "type": "VISUAL",
-        "shape": [3, 360, 640]
+        "shape": [3, 1080, 1920]
       },
       "observation.images.top": {
         "type": "VISUAL",
-        "shape": [3, 360, 640]
+        "shape": [3, 1080, 1920]
       },
       "observation.images.side": {
         "type": "VISUAL",
-        "shape": [3, 360, 640]
+        "shape": [3, 1080, 1920]
       }
     }
   },

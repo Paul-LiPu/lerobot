@@ -105,10 +105,10 @@ bash setup_cams.sh "${CAMERA_WIDTH}" "${CAMERA_HEIGHT}"
 uv run --extra romoya --extra pi lerobot-record \
   --dataset.fps=30 \
   --dataset.vcodec=h264_nvenc \
+  --trace_path=infer-pi05-trace.json \
   --robot.type=romoya_lebai_follower \
   --robot.ip=192.168.50.172 \
   --robot.id=lebai_follower_arm \
-  --robot.trace_path=infer-pi05-trace.json \
   --robot.cameras="{ wrist: {type: opencv, index_or_path: /dev/cam_wrist, width: ${CAMERA_WIDTH}, height: ${CAMERA_HEIGHT}, fps: 30, fourcc: MJPG}, top: {type: opencv, index_or_path: /dev/cam_top, width: ${CAMERA_WIDTH}, height: ${CAMERA_HEIGHT}, fps: 30, fourcc: MJPG}, side: {type: opencv, index_or_path: /dev/cam_side, width: ${CAMERA_WIDTH}, height: ${CAMERA_HEIGHT}, fps: 30, fourcc: MJPG}}" \
   --robot.gripper_force=100 \
   --robot.acceleration=1.0 \

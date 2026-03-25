@@ -19,6 +19,7 @@ import copy
 import logging
 import math
 from collections import deque
+from contextlib import nullcontext
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, TypedDict, Unpack
 
@@ -933,6 +934,12 @@ class PI05Policy(PreTrainedPolicy):
 
         self.reset()
 
+    def _trace_span(self, name: str, args: dict | None = None):
+        trace_recorder = getattr(self, "_trace_recorder", None)
+        if trace_recorder is None or not getattr(trace_recorder, "enabled", False):
+            return nullcontext()
+        return trace_recorder.span(name, args=args, category="policy")
+
     @classmethod
     def from_pretrained(
         cls: builtins.type[T],
@@ -1221,7 +1228,11 @@ class PI05Policy(PreTrainedPolicy):
 
         # Action queue logic for n_action_steps > 1
         if len(self._action_queue) == 0:
-            actions = self.predict_action_chunk(batch)[:, : self.config.n_action_steps]
+            with self._trace_span(
+                "policy.predict_action_chunk",
+                {"chunk_size": self.config.chunk_size, "n_action_steps": self.config.n_action_steps},
+            ):
+                actions = self.predict_action_chunk(batch)[:, : self.config.n_action_steps]
             # Transpose to get shape (n_action_steps, batch_size, action_dim)
             self._action_queue.extend(actions.transpose(0, 1))
 

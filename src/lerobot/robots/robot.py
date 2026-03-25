@@ -15,6 +15,7 @@
 import abc
 import builtins
 from pathlib import Path
+from typing import Any
 
 import draccus
 
@@ -83,6 +84,10 @@ class Robot(abc.ABC):
                 self.disconnect()
         except Exception:  # nosec B110
             pass
+
+    def set_trace_recorder(self, trace_recorder: Any | None) -> None:
+        """Optional hook for robots that want to emit spans into a shared recorder."""
+        del trace_recorder
 
     # TODO(aliberts): create a proper Feature class for this that links with datasets
     @property

@@ -184,6 +184,28 @@ def _resolve_pretrained_artifact_paths(pretrained_path: str | Path) -> dict[str,
     }
 
 
+def _resolve_trace_output_path(cfg: "RecordConfig", robot: Robot) -> str | Path | None:
+    robot_trace_path = getattr(getattr(robot, "config", None), "trace_path", None)
+    if cfg.trace_path is not None:
+        if robot_trace_path is not None:
+            logging.warning(
+                "`robot.trace_path` is deprecated and ignored when top-level `trace_path` is set. "
+                "Using trace_path=%s",
+                cfg.trace_path,
+            )
+        return cfg.trace_path
+
+    if robot_trace_path is not None:
+        logging.warning(
+            "`robot.trace_path` is deprecated. Please use top-level `trace_path` instead. "
+            "Using robot.trace_path=%s for this run.",
+            robot_trace_path,
+        )
+        return robot_trace_path
+
+    return None
+
+
 def safe_disconnect_devices(robot: Robot | None, teleop: Teleoperator | None) -> None:
     if robot is not None:
         try:
@@ -745,8 +767,10 @@ def record(cfg: RecordConfig) -> LeRobotDataset:
     teleop = make_teleoperator_from_config(cfg.teleop) if cfg.teleop is not None else None
 
     teleop_action_processor, robot_action_processor, robot_observation_processor = make_default_processors()
-    trace_recorder = ChromeTraceRecorder(cfg.trace_path, process_name="lerobot-record")
+    effective_trace_path = _resolve_trace_output_path(cfg, robot)
+    trace_recorder = ChromeTraceRecorder(effective_trace_path, process_name="lerobot-record")
     trace_recorder.set_thread_name("record-main")
+    robot.set_trace_recorder(trace_recorder)
 
     record_action_features = _get_record_action_features(robot, teleop, has_policy=cfg.policy is not None)
     dataset_features = combine_feature_dicts(
@@ -819,6 +843,7 @@ def record(cfg: RecordConfig) -> LeRobotDataset:
             logging.info("Policy resolved preprocessor config: %s", resolved_policy_paths["preprocessor"])
             logging.info("Policy resolved postprocessor config: %s", resolved_policy_paths["postprocessor"])
             policy = make_policy(cfg.policy, ds_meta=dataset.meta)
+            setattr(policy, "_trace_recorder", trace_recorder)
             preprocessor, postprocessor = make_pre_post_processors(
                 policy_cfg=cfg.policy,
                 pretrained_path=cfg.policy.pretrained_path,
