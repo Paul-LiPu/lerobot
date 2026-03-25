@@ -46,12 +46,12 @@ class LebaiFollower(Robot):
         super().__init__(config)
         self.config = config
         self._arm = None
-        self._last_gripper_target: float | None = None
-        self._last_gripper_force: float | None = None
+        self._last_gripper_target: int | None = None
+        self._last_gripper_force: int | None = None
         self._last_do0_target: int | None = None
         self._last_do1_target: int | None = None
-        self._desired_gripper_target: float | None = None
-        self._desired_gripper_force: float | None = None
+        self._desired_gripper_target: int | None = None
+        self._desired_gripper_force: int | None = None
         self._desired_do0_target: int | None = None
         self._desired_do1_target: int | None = None
         self._ee_lock = Lock()
@@ -62,11 +62,18 @@ class LebaiFollower(Robot):
         self._do_busy = Event()
         self._gripper_thread: Thread | None = None
         self._do_thread: Thread | None = None
-        self._trace = ChromeTraceRecorder(self.config.trace_path, process_name=f"{self.name}:{self.id}")
+        self._trace = ChromeTraceRecorder(None, process_name=f"{self.name}:{self.id}")
 
         from lerobot.cameras import make_cameras_from_configs
 
         self.cameras = make_cameras_from_configs(config.cameras)
+
+    def set_trace_recorder(self, trace_recorder: ChromeTraceRecorder | None) -> None:
+        self._trace = (
+            trace_recorder
+            if trace_recorder is not None
+            else ChromeTraceRecorder(None, process_name=f"{self.name}:{self.id}")
+        )
 
     @property
     def arm(self) -> Any:
@@ -138,8 +145,8 @@ class LebaiFollower(Robot):
             camera.connect()
         self.configure()
         initial_claw = get_claw_data(self.arm)
-        self._last_gripper_target = float(initial_claw["amplitude"])
-        self._last_gripper_force = float(initial_claw["force"])
+        self._last_gripper_target = int(round(initial_claw["amplitude"]))
+        self._last_gripper_force = int(round(initial_claw["force"]))
         self._desired_gripper_target = self._last_gripper_target
         self._desired_gripper_force = self._last_gripper_force
         self._last_do0_target = None
@@ -320,7 +327,7 @@ class LebaiFollower(Robot):
                     logger.warning("%s failed to apply DO_1 command.", self, exc_info=True)
             self._do_busy.clear()
 
-    def _queue_gripper_command(self, gripper_target: float, gripper_force: float) -> None:
+    def _queue_gripper_command(self, gripper_target: int, gripper_force: int) -> None:
         if self._gripper_busy.is_set():
             return
         with self._ee_lock:
@@ -355,8 +362,8 @@ class LebaiFollower(Robot):
                 )
 
         if "gripper.pos" in sent_action:
-            gripper_target = float(sent_action["gripper.pos"])
-            gripper_force = float(sent_action.get("gripper.force", self.config.gripper_force))
+            gripper_target = int(round(float(sent_action["gripper.pos"])))
+            gripper_force = int(round(float(sent_action.get("gripper.force", self.config.gripper_force))))
             if abs(gripper_target) <= 1e-6:
                 gripper_target = self.config.gripper_closed_position
             self._queue_gripper_command(gripper_target, gripper_force)
@@ -413,7 +420,6 @@ class LebaiFollower(Robot):
             except Exception:
                 logger.exception("Failed disconnecting camera")
 
-        self._trace.close()
         logger.info("%s disconnected.", self)
 
     def _trace_span(self, name: str, args: dict[str, Any] | None = None):
@@ -465,8 +471,8 @@ class LebaiFollower(Robot):
             return int(self._last_do1_target or 0)
         return 0
 
-    def set_claw(self, amplitude: float, force: float | None = None) -> None:
-        self.arm.set_claw(float(force if force is not None else self.config.gripper_force), float(amplitude))
+    def set_claw(self, amplitude: int, force: int | None = None) -> None:
+        self.arm.set_claw(int(force if force is not None else self.config.gripper_force), int(amplitude))
 
     def get_claw_data(self) -> dict[str, float | bool]:
         return get_claw_data(self.arm)

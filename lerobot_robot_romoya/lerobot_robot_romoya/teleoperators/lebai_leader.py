@@ -74,9 +74,9 @@ class LebaiLeader(Teleoperator):
         self.mouse_listener = None
         self.gamepad = None
         self._using_gamepad = False
-        self.gripper_target = float(self.config.gripper_open_position)
-        self.do0_target = 0.0
-        self.do1_target = 0.0
+        self.gripper_target = self.config.gripper_open_position
+        self.do0_target = 0
+        self.do1_target = 0
         self._pending_control_events: set[str] = set()
         self._last_hat_value = (0, 0)
         self._last_hat_trigger_ts = 0.0
@@ -186,23 +186,23 @@ class LebaiLeader(Teleoperator):
             return
         if button == mouse.Button.left:
             self._gripper_open = not self._gripper_open
-            self.gripper_target = float(self.config.gripper_open_position) if self._gripper_open else 0.0
+            self.gripper_target = self.config.gripper_open_position if self._gripper_open else 0
         elif button == mouse.Button.right:
             now = time.monotonic()
             if self._suction_stop_deadline is not None and now < self._suction_stop_deadline:
                 self._suction_stop_deadline = None
                 self._suction_on = True
-                self.do0_target = 1.0
-                self.do1_target = 1.0
+                self.do0_target = 1
+                self.do1_target = 1
             elif self._suction_on:
                 self._suction_stop_deadline = now + 1.0
-                self.do0_target = 0.0
-                self.do1_target = 1.0
+                self.do0_target = 0
+                self.do1_target = 1
             else:
                 self._suction_stop_deadline = None
                 self._suction_on = True
-                self.do0_target = 1.0
-                self.do1_target = 1.0
+                self.do0_target = 1
+                self.do1_target = 1
 
     def _on_scroll(self, x, y, dx, dy) -> None:
         del x, y, dx, dy
@@ -210,24 +210,24 @@ class LebaiLeader(Teleoperator):
 
     def _toggle_gripper(self) -> None:
         self._gripper_open = not self._gripper_open
-        self.gripper_target = float(self.config.gripper_open_position) if self._gripper_open else 0.0
+        self.gripper_target = self.config.gripper_open_position if self._gripper_open else 0
 
     def _toggle_suction(self) -> None:
         now = time.monotonic()
         if self._suction_stop_deadline is not None and now < self._suction_stop_deadline:
             self._suction_stop_deadline = None
             self._suction_on = True
-            self.do0_target = 1.0
-            self.do1_target = 1.0
+            self.do0_target = 1
+            self.do1_target = 1
         elif self._suction_on:
             self._suction_stop_deadline = now + 1.0
-            self.do0_target = 0.0
-            self.do1_target = 1.0
+            self.do0_target = 0
+            self.do1_target = 1
         else:
             self._suction_stop_deadline = None
             self._suction_on = True
-            self.do0_target = 1.0
-            self.do1_target = 1.0
+            self.do0_target = 1
+            self.do1_target = 1
 
     def _drain_pressed_keys(self) -> None:
         while not self.event_queue.empty():
@@ -317,8 +317,8 @@ class LebaiLeader(Teleoperator):
         if time.monotonic() >= self._suction_stop_deadline:
             self._suction_stop_deadline = None
             self._suction_on = False
-            self.do0_target = 0.0
-            self.do1_target = 0.0
+            self.do0_target = 0
+            self.do1_target = 0
 
     def get_action(self) -> RobotAction:
         if not self.is_connected:
@@ -349,7 +349,7 @@ class LebaiLeader(Teleoperator):
             action[f"joint{index}.voltage"] = joint_voltage[index - 1]
         if self.config.use_gripper:
             action["gripper.pos"] = self.gripper_target
-            action["gripper.force"] = float(self.config.gripper_force)
+            action["gripper.force"] = self.config.gripper_force
         if self.config.use_do:
             action["DO_0"] = self.do0_target
             action["DO_1"] = self.do1_target
@@ -425,10 +425,10 @@ class LebaiLeader(Teleoperator):
                     logger.exception("Failed re-entering teach mode after moving leader.")
 
     def apply_saved_control_state(self, saved_state: dict[str, float]) -> None:
-        self.gripper_target = float(saved_state["gripper.pos"])
-        self._gripper_open = self.gripper_target >= float(self.config.gripper_open_position) / 2.0
-        self.do0_target = float(saved_state["DO_0"])
-        self.do1_target = float(saved_state["DO_1"])
+        self.gripper_target = int(round(saved_state["gripper.pos"]))
+        self._gripper_open = self.gripper_target >= self.config.gripper_open_position / 2.0
+        self.do0_target = int(round(saved_state["DO_0"]))
+        self.do1_target = int(round(saved_state["DO_1"]))
         self._suction_stop_deadline = None
         self._suction_on = bool(self.do0_target or self.do1_target)
 

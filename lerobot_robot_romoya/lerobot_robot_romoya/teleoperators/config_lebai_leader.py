@@ -15,8 +15,8 @@ class LebaiLeaderConfig(TeleoperatorConfig):
     enter_teach_mode_on_connect: bool = True
     exit_teach_mode_on_disconnect: bool = True
     use_gripper: bool = True
-    gripper_force: float = 100.0
-    gripper_open_position: float = 99.0
+    gripper_force: int = 100
+    gripper_open_position: int = 99
     use_do: bool = True
     use_gamepad: bool = True
     use_effort: bool = True
