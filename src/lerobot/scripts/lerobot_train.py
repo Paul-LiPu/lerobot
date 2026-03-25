@@ -29,7 +29,7 @@ from tqdm import tqdm
 from lerobot.configs import parser
 from lerobot.configs.train import TrainPipelineConfig
 from lerobot.datasets.factory import make_dataset
-from lerobot.datasets.sampler import EpisodeAwareSampler
+from lerobot.datasets.sampler import EpisodeAwareSampler, RangeEventSampler
 from lerobot.datasets.utils import cycle
 from lerobot.envs.factory import make_env, make_env_pre_post_processors
 from lerobot.envs.utils import close_envs
@@ -54,6 +54,16 @@ from lerobot.utils.utils import (
     init_logging,
     inside_slurm,
 )
+
+
+def _stack_observation_state_column(dataset) -> torch.Tensor:
+    dataset._ensure_hf_dataset_loaded()
+    raw_states = dataset.hf_dataset["observation.state"]
+    stacked_states = []
+    for state in raw_states:
+        state_tensor = state if torch.is_tensor(state) else torch.as_tensor(state)
+        stacked_states.append(state_tensor.to(dtype=torch.float32))
+    return torch.stack(stacked_states)
 
 
 def update_policy(
@@ -343,13 +353,53 @@ def train(cfg: TrainPipelineConfig, accelerator: Accelerator | None = None):
         logging.info(f"{num_total_params=} ({format_big_number(num_total_params)})")
 
     # create dataloader for offline training
-    if hasattr(cfg.policy, "drop_n_last_frames"):
+    drop_n_last_frames = getattr(cfg.policy, "drop_n_last_frames", 0)
+    if cfg.event_sampler.enable:
+        if "observation.state" not in dataset.features:
+            raise ValueError("event_sampler requires observation.state to be present in the training dataset.")
+        transformed_state_names = dataset.features["observation.state"].get("names")
+        if transformed_state_names is None:
+            raise ValueError(
+                "event_sampler requires transformed observation.state names in dataset.features['observation.state']['names']."
+            )
+
+        sampler = RangeEventSampler(
+            dataset.meta.episodes["dataset_from_index"],
+            dataset.meta.episodes["dataset_to_index"],
+            observation_states=_stack_observation_state_column(dataset),
+            state_feature_names=list(transformed_state_names),
+            event_state_names=cfg.event_sampler.state_names,
+            event_low=cfg.event_sampler.low,
+            event_high=cfg.event_sampler.high,
+            event_horizon=cfg.event_sampler.horizon,
+            event_probability=cfg.event_sampler.probability,
+            episode_indices_to_use=dataset.episodes,
+            drop_n_last_frames=drop_n_last_frames,
+            shuffle=True,
+        )
+        shuffle = False
+        if is_main_process:
+            logging.info(
+                "Event-biased sampler enabled: state_names=%s range=(%s, %s) horizon=%d probability=%s",
+                cfg.event_sampler.state_names,
+                cfg.event_sampler.low,
+                cfg.event_sampler.high,
+                cfg.event_sampler.horizon,
+                cfg.event_sampler.probability,
+            )
+            logging.info(
+                "Event-biased sampler stats: valid_frames=%d special_frames=%d special_fraction=%.4f",
+                len(sampler.indices),
+                len(sampler.special_indices),
+                sampler.special_fraction,
+            )
+    elif hasattr(cfg.policy, "drop_n_last_frames"):
         shuffle = False
         sampler = EpisodeAwareSampler(
             dataset.meta.episodes["dataset_from_index"],
             dataset.meta.episodes["dataset_to_index"],
             episode_indices_to_use=dataset.episodes,
-            drop_n_last_frames=cfg.policy.drop_n_last_frames,
+            drop_n_last_frames=drop_n_last_frames,
             shuffle=True,
         )
     else:

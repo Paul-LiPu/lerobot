@@ -51,8 +51,10 @@ class ACTRomoyaConfig(ACTConfig):
     binary_action: list[tuple[float, float, float] | None] = field(default_factory=list)
     delta_action: list[bool] = field(default_factory=list)
 
-    do_threshold: float = 0.5
+    do_threshold: float | None = None
+    gripper_threshold: float | None = None
     sigmoid_do_outputs: bool = False
+    observation_image_resize_shape: list[int] | None = None
 
     normalization_mapping: dict[str, NormalizationMode] = field(
         default_factory=lambda: {

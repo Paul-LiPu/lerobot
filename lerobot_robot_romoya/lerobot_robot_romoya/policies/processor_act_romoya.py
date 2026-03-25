@@ -16,6 +16,7 @@ from lerobot.processor import (
     ProcessorStep,
     ProcessorStepRegistry,
     TransitionKey,
+    ImageCropResizeProcessorStep,
 )
 from lerobot.utils.constants import ACTION, OBS_STATE, POLICY_POSTPROCESSOR_DEFAULT_NAME, POLICY_PREPROCESSOR_DEFAULT_NAME
 
@@ -34,6 +35,10 @@ from .romoya_transforms import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _debug_enabled() -> bool:
+    return os.getenv("LEROBOT_DEBUG", "").lower() in {"1", "true", "yes", "on"}
 
 
 @dataclass
@@ -216,7 +221,8 @@ class ACTRomoyaPreprocessStep(ProcessorStep):
 class ACTRomoyaPostprocessStep(ProcessorStep):
     raw_observation_state_feature_names: list[str]
     raw_action_feature_names: list[str]
-    do_threshold: float
+    do_threshold: float | None = None
+    gripper_threshold: float | None = None
     action_mode: str | None = DELTA_ACTION_MODE
     state_feature_names: list[str] | None = None
     action_feature_names: list[str] | None = None
@@ -263,22 +269,49 @@ class ACTRomoyaPostprocessStep(ProcessorStep):
             do_idx = self._spec.action_feature_names.index("DO_1")
             action[..., do_idx] = torch.sigmoid(action[..., do_idx])
 
-        if os.getenv("ROMOYA_DEBUG_DO1", "").lower() in {"1", "true", "yes", "on"} and "DO_1" in self._spec.action_feature_names:
-            do_idx = self._spec.action_feature_names.index("DO_1")
-            do_value = float(action.reshape(-1, action.shape[-1])[0, do_idx].detach().cpu().item())
-            logger.info(
-                "Romoya predicted DO_1=%.6f threshold=%.3f output=%d",
-                do_value,
-                self.do_threshold,
-                int(do_value >= self.do_threshold),
-            )
-
         binary_action = []
         for name, spec in zip(self._spec.action_feature_names, self._spec.binary_action, strict=True):
-            if spec is None and name == "DO_1":
+            if name == "gripper.pos" and spec is not None and self.gripper_threshold is not None:
+                _, low, high = spec
+                binary_action.append((self.gripper_threshold, low, high))
+            elif name == "DO_1" and spec is not None and self.do_threshold is not None:
+                _, low, high = spec
+                binary_action.append((self.do_threshold, low, high))
+            elif spec is None and name == "DO_1" and self.do_threshold is not None:
                 binary_action.append((self.do_threshold, 0.0, 1.0))
             else:
                 binary_action.append(spec)
+
+        if _debug_enabled():
+            flat_action = action.reshape(-1, action.shape[-1])
+            debug_parts = []
+            if "gripper.pos" in self._spec.action_feature_names:
+                gripper_idx = self._spec.action_feature_names.index("gripper.pos")
+                gripper_value = float(flat_action[0, gripper_idx].detach().cpu().item())
+                gripper_spec = binary_action[gripper_idx]
+                if gripper_spec is not None:
+                    gripper_threshold = float(gripper_spec[0])
+                    gripper_output = int(gripper_value >= gripper_threshold)
+                    debug_parts.append(
+                        f"gripper.pos={gripper_value:.3f} threshold={gripper_threshold:.3f} output={gripper_output}"
+                    )
+                else:
+                    debug_parts.append(f"gripper.pos={gripper_value:.3f}")
+            if "DO_1" in self._spec.action_feature_names:
+                do_idx = self._spec.action_feature_names.index("DO_1")
+                do_value = float(flat_action[0, do_idx].detach().cpu().item())
+                do_spec = binary_action[do_idx]
+                if do_spec is not None:
+                    do_threshold = float(do_spec[0])
+                    do_output = int(do_value >= do_threshold)
+                    debug_parts.append(
+                        f"DO_1={do_value:.3f} threshold={do_threshold:.3f} output={do_output}"
+                    )
+                else:
+                    debug_parts.append(f"DO_1={do_value:.3f}")
+            if debug_parts:
+                logger.info("Romoya predicted %s", ", ".join(debug_parts))
+
         active_spec = RomoyaTransformSpec(
             state_feature_names=self._spec.state_feature_names,
             action_feature_names=self._spec.action_feature_names,
@@ -312,6 +345,7 @@ class ACTRomoyaPostprocessStep(ProcessorStep):
             "gripper_action_name": self.gripper_action_name,
             "do_action_names": self.do_action_names,
             "do_threshold": self.do_threshold,
+            "gripper_threshold": self.gripper_threshold,
             "sigmoid_do_outputs": self.sigmoid_do_outputs,
             "context_id": self.context_id,
             "gripper_min": self.gripper_min,
@@ -368,14 +402,29 @@ def make_act_romoya_pre_post_processors(
         gripper_action_name=config.gripper_action_name,
         do_action_names=config.do_action_names,
         do_threshold=config.do_threshold,
+        gripper_threshold=config.gripper_threshold,
         sigmoid_do_outputs=config.sigmoid_do_outputs,
     )
+    image_resize_step = None
+    if config.observation_image_resize_shape is not None:
+        if len(config.observation_image_resize_shape) != 2:
+            raise ValueError(
+                "act_romoya observation_image_resize_shape must have exactly 2 elements: [height, width]."
+            )
+        image_resize_step = ImageCropResizeProcessorStep(
+            resize_size=tuple(int(v) for v in config.observation_image_resize_shape)
+        )
+
+    preprocessor_steps = [
+        preprocessor.steps[0],
+        preprocess_step,
+        preprocessor.steps[1],
+    ]
+    if image_resize_step is not None:
+        preprocessor_steps.append(image_resize_step)
+    preprocessor_steps.extend(preprocessor.steps[2:])
     preprocessor = PolicyProcessorPipeline[dict[str, Any], dict[str, Any]](
-        steps=[
-            preprocessor.steps[0],
-            preprocess_step,
-            *preprocessor.steps[1:],
-        ],
+        steps=preprocessor_steps,
         name=POLICY_PREPROCESSOR_DEFAULT_NAME,
         to_transition=preprocessor.to_transition,
         to_output=preprocessor.to_output,

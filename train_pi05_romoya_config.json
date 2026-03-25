@@ -154,6 +154,14 @@
   },
   "batch_size": 8,
   "steps": 40000,
+  "event_sampler": {
+    "enable": true,
+    "state_names": ["gripper.pos"],
+    "low": 1.0,
+    "high": 97.0,
+    "horizon": 60,
+    "probability": 0.3
+  },
   "wandb": {
     "enable": true
   }

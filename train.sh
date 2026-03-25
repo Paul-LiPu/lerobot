@@ -15,21 +15,32 @@ set -euo pipefail
 #   - HF_USER is detected automatically from `hf auth whoami`
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# CONFIG_PATH="${TRAIN_CONFIG_PATH:-${SCRIPT_DIR}/train_act_config_abs.json}"
-CONFIG_PATH="${TRAIN_CONFIG_PATH:-${SCRIPT_DIR}/train_pi05_romoya_config.json}"
+HELPER_DIR="${SCRIPT_DIR}/lerobot_robot_romoya/helper"
 
-DEFAULT_DATASET_REPOS=(
-  "PL2011/lebai-open-fridge-door"
-  "PL2011/lebai-gripper-plate"
-  "PL2011/lebai-gripper-black-taped-box-2"
-)
-DEFAULT_POLICY_REPO_NAME="pi05_sjaj_gripper-box-plate-fdoor"
-DEFAULT_OUTPUT_NAME="pi05_sjaj_gripper-box-plate-fdoor"
-DEFAULT_POLICY_TYPE="pi05_romoya"
+CONFIG_PATH="${TRAIN_CONFIG_PATH:-${SCRIPT_DIR}/train_act_config_abs_cg.json}"
+DEFAULT_DATASET_REPOS="PL2011/lebai-gripper-black-taped-box-2"
+DEFAULT_POLICY_REPO_NAME="act_sjaj_gripper-box"
+DEFAULT_OUTPUT_NAME="act_sjaj_gripper"
+DEFAULT_POLICY_TYPE="act_romoya"
 DEFAULT_DEVICE="cuda"
-DEFAULT_STEPS=40000
-DEFAULT_BATCH_SIZE=24
-DEFAULT_NUM_WORKERS=12
+DEFAULT_STEPS=20000
+DEFAULT_BATCH_SIZE=48
+
+# CONFIG_PATH="${TRAIN_CONFIG_PATH:-${SCRIPT_DIR}/train_pi05_romoya_config.json}"
+# DEFAULT_DATASET_REPOS=(
+#   "PL2011/lebai-open-fridge-door"
+#   "PL2011/lebai-gripper-plate"
+#   "PL2011/lebai-gripper-black-taped-box-2"
+# )
+# DEFAULT_POLICY_REPO_NAME="pi05_sjaj_gripper-box-plate-fdoor"
+# DEFAULT_OUTPUT_NAME="pi05_sjaj_gripper-box-plate-fdoor"
+# DEFAULT_POLICY_TYPE="pi05_romoya"
+# DEFAULT_DEVICE="cuda"
+# DEFAULT_STEPS=40000
+# DEFAULT_BATCH_SIZE=24
+
+
+DEFAULT_NUM_WORKERS=8
 DEFAULT_WANDB_ENABLE="true"
 
 DATASET_SPEC="${1:-}"
@@ -102,65 +113,18 @@ else
   DATASET_REPO_ID="${ROMOYA_MERGED_DATASET_REPO_ID:-${HF_USER}/dataset_merged}"
 
   MERGED_MATCH="$(
-    python3 - "${DATASET_REPO_ID}" "${ROMOYA_MERGED_DATASET_ROOT}" "${DATASET_REPO_IDS[@]}" <<'PY'
-import json
-import os
-import sys
-from pathlib import Path
-
-merged_repo_id = sys.argv[1]
-merged_root_override = sys.argv[2] or None
-source_repo_ids = sys.argv[3:]
-
-if merged_root_override:
-    dataset_root = Path(merged_root_override)
-else:
-    hf_home = Path(os.getenv("HF_HOME", str(Path.home() / ".cache" / "huggingface")))
-    hf_lerobot_home = Path(os.getenv("HF_LEROBOT_HOME", str(hf_home / "lerobot")))
-    dataset_root = hf_lerobot_home / merged_repo_id
-
-info_path = dataset_root / "meta" / "info.json"
-stats_path = dataset_root / "meta" / "stats.json"
-if not info_path.is_file() or not stats_path.is_file():
-    print("missing")
-    raise SystemExit(0)
-
-info = json.loads(info_path.read_text())
-romoya_merge = info.get("romoya_merge") or {}
-if romoya_merge.get("source_repo_ids") == source_repo_ids:
-    print("match")
-else:
-    print("stale")
-PY
+    python3 "${HELPER_DIR}/check_merged_dataset.py" \
+      "${DATASET_REPO_ID}" \
+      "${ROMOYA_MERGED_DATASET_ROOT}" \
+      "${DATASET_REPO_IDS[@]}"
   )"
 
   if [[ "${MERGED_MATCH}" != "match" ]]; then
     echo "Merging training datasets into ${DATASET_REPO_ID}"
-    uv run "${UV_EXTRA_ARGS[@]}" python - "${DATASET_REPO_ID}" "${ROMOYA_MERGED_DATASET_ROOT}" "${DATASET_REPO_IDS[@]}" <<'PY'
-import json
-import os
-import sys
-from pathlib import Path
-
-from lerobot.datasets.dataset_tools import merge_datasets
-from lerobot.datasets.io_utils import write_info
-from lerobot.datasets.lerobot_dataset import LeRobotDataset
-
-merged_repo_id = sys.argv[1]
-merged_root_override = sys.argv[2] or None
-source_repo_ids = sys.argv[3:]
-
-datasets = [LeRobotDataset(repo_id) for repo_id in source_repo_ids]
-merged_dataset = merge_datasets(
-    datasets,
-    output_repo_id=merged_repo_id,
-    output_dir=Path(merged_root_override) if merged_root_override else None,
-)
-merged_dataset.meta.info["romoya_merge"] = {
-    "source_repo_ids": source_repo_ids,
-}
-write_info(merged_dataset.meta.info, merged_dataset.root)
-PY
+    uv run "${UV_EXTRA_ARGS[@]}" python "${HELPER_DIR}/merge_datasets.py" \
+      "${DATASET_REPO_ID}" \
+      "${ROMOYA_MERGED_DATASET_ROOT}" \
+      "${DATASET_REPO_IDS[@]}"
   else
     echo "Reusing merged dataset: ${DATASET_REPO_ID}"
   fi
@@ -179,34 +143,37 @@ fi
 OUTPUT_DIR="outputs/train/${OUTPUT_NAME}"
 JOB_NAME="${OUTPUT_NAME}"
 
+if [[ -d "${OUTPUT_DIR}" ]]; then
+  echo "Output directory ${OUTPUT_DIR} already exists and resume is false. Choose a new output name or remove the existing directory before training." >&2
+  exit 1
+fi
+
+destroy_vast_instance_if_configured() {
+  if [[ -z "${VAST_CONTAINERLABEL:-}" ]]; then
+    return
+  fi
+
+  if ! command -v vastai >/dev/null 2>&1; then
+    echo "VAST_CONTAINERLABEL is set, but 'vastai' CLI is not available; skipping instance destroy." >&2
+    return
+  fi
+
+  local instance_id
+  instance_id="$(echo "${VAST_CONTAINERLABEL}" | sed 's/^C\.//')"
+  if [[ -z "${instance_id}" ]]; then
+    echo "Failed to determine Vast instance id from VAST_CONTAINERLABEL='${VAST_CONTAINERLABEL}'; skipping destroy." >&2
+    return
+  fi
+
+  echo "Destroying Vast instance ${instance_id}"
+  vastai destroy instance "${instance_id}"
+}
+
 ROMOYA_PREPARED_DATASET_REPO_ID="${ROMOYA_PREPARED_DATASET_REPO_ID:-${DATASET_REPO_ID}_romoya_prepared}"
 ROMOYA_PREPARED_DATASET_ROOT="${ROMOYA_PREPARED_DATASET_ROOT:-}"
 
 ROMOYA_PREPARE_MODE="$(
-  python3 - "$CONFIG_PATH" <<'PY'
-import json
-import sys
-from pathlib import Path
-
-payload = json.loads(Path(sys.argv[1]).read_text())
-policy = payload.get("policy", payload)
-if policy.get("type") not in {"act_romoya", "pi05_romoya"}:
-    print("none")
-    raise SystemExit(0)
-
-action_mode = policy.get("action_mode", "__missing__")
-if action_mode is not None and action_mode != "__missing__":
-    print("legacy")
-    raise SystemExit(0)
-
-binary_state = policy.get("binary_state") or []
-binary_action = policy.get("binary_action") or []
-delta_action = policy.get("delta_action") or []
-needs_prepare = any(value is not None for value in binary_state) or any(
-    value is not None for value in binary_action
-) or any(bool(value) for value in delta_action)
-print("generic" if needs_prepare else "none")
-PY
+  python3 "${HELPER_DIR}/detect_prepare_mode.py" "$CONFIG_PATH"
 )"
 
 if [[ "${ROMOYA_PREPARE_MODE}" != "none" ]]; then
@@ -214,72 +181,11 @@ if [[ "${ROMOYA_PREPARE_MODE}" != "none" ]]; then
     echo "Using already-prepared Romoya dataset: ${DATASET_REPO_ID}"
   else
     PREPARED_MATCH="$(
-      python3 - "$CONFIG_PATH" "$DATASET_REPO_ID" "$ROMOYA_PREPARED_DATASET_REPO_ID" "$ROMOYA_PREPARED_DATASET_ROOT" <<'PY'
-import json
-import os
-import sys
-from pathlib import Path
-
-config_path = Path(sys.argv[1])
-src_repo_id = sys.argv[2]
-dst_repo_id = sys.argv[3]
-dst_root = sys.argv[4] or None
-
-payload = json.loads(config_path.read_text())
-policy = payload.get("policy", payload)
-expected = {
-    "action_mode": policy.get("action_mode"),
-    "state_feature_names": policy.get("state_feature_names"),
-    "action_feature_names": policy.get("action_feature_names"),
-    "binary_state": policy.get("binary_state"),
-    "binary_action": policy.get("binary_action"),
-    "delta_action": policy.get("delta_action"),
-}
-
-if dst_root:
-    base_root = Path(dst_root)
-else:
-    hf_home = Path(os.getenv("HF_HOME", str(Path.home() / ".cache" / "huggingface")))
-    hf_lerobot_home = Path(os.getenv("HF_LEROBOT_HOME", str(hf_home / "lerobot")))
-    base_root = hf_lerobot_home / dst_repo_id
-info_path = base_root / "meta" / "info.json"
-stats_path = base_root / "meta" / "stats.json"
-if not info_path.is_file() or not stats_path.is_file():
-    print("missing")
-    raise SystemExit(0)
-
-info = json.loads(info_path.read_text())
-romoya_prepare = info.get("romoya_prepare") or {}
-if romoya_prepare.get("source_repo_id") != src_repo_id:
-    print("stale")
-    raise SystemExit(0)
-if not romoya_prepare.get("source_raw_observation_state_feature_names") or not romoya_prepare.get("source_raw_action_feature_names"):
-    print("stale")
-    raise SystemExit(0)
-
-def eq(key):
-    return romoya_prepare.get(key) == expected.get(key)
-
-if expected["action_mode"] is not None:
-    is_match = eq("action_mode")
-else:
-    is_match = all(
-        eq(key)
-        for key in (
-            "action_mode",
-            "state_feature_names",
-            "action_feature_names",
-            "binary_state",
-            "binary_action",
-            "delta_action",
-        )
-    )
-
-if is_match:
-    print("match")
-else:
-    print("stale")
-PY
+      python3 "${HELPER_DIR}/check_prepared_dataset.py" \
+        "$CONFIG_PATH" \
+        "$DATASET_REPO_ID" \
+        "$ROMOYA_PREPARED_DATASET_REPO_ID" \
+        "$ROMOYA_PREPARED_DATASET_ROOT"
     )"
 
     if [[ "${PREPARED_MATCH}" != "match" ]]; then
@@ -289,6 +195,11 @@ PY
         --dst-repo-id "${ROMOYA_PREPARED_DATASET_REPO_ID}"
         --config-path "${CONFIG_PATH}"
       )
+      RESIZE_ARGS=()
+      mapfile -t RESIZE_ARGS < <(python3 "${HELPER_DIR}/get_prepare_resize_args.py" "$CONFIG_PATH")
+      if [[ "${#RESIZE_ARGS[@]}" -gt 0 ]]; then
+        PREPARE_ARGS+=("${RESIZE_ARGS[@]}")
+      fi
       if [[ -n "${FINAL_DATASET_ROOT}" ]]; then
         PREPARE_ARGS+=(--src-root "${FINAL_DATASET_ROOT}")
       fi
@@ -314,59 +225,10 @@ if [[ -n "${FINAL_DATASET_ROOT}" ]]; then
   DATASET_ROOT_CLI_ARGS+=(--dataset.root="${FINAL_DATASET_ROOT}")
 fi
 
-python3 - "$DATASET_REPO_ID" "${FINAL_DATASET_ROOT}" "${DATASET_REPO_IDS[@]}" <<'PY'
-import json
-import os
-import sys
-from pathlib import Path
-
-dataset_repo_id = sys.argv[1]
-dataset_root_override = sys.argv[2] or None
-source_repo_ids = sys.argv[3:]
-if dataset_root_override:
-    dataset_root = Path(dataset_root_override)
-else:
-    hf_home = Path(os.getenv("HF_HOME", str(Path.home() / ".cache" / "huggingface")))
-    hf_lerobot_home = Path(os.getenv("HF_LEROBOT_HOME", str(hf_home / "lerobot")))
-    dataset_root = hf_lerobot_home / dataset_repo_id
-info_path = dataset_root / "meta" / "info.json"
-stats_path = dataset_root / "meta" / "stats.json"
-
-if not info_path.is_file() or not stats_path.is_file():
-    print(f"Dataset stats not found locally under {dataset_root}; skipping stats print.")
-    raise SystemExit(0)
-
-info = json.loads(info_path.read_text())
-stats = json.loads(stats_path.read_text())
-features = info.get("features", {})
-
-def print_vector_stats(key: str) -> None:
-    feature = features.get(key)
-    stat = stats.get(key)
-    if feature is None or stat is None:
-        print(f"{key}: not found")
-        return
-    names = feature.get("names") or [f"{key}[{i}]" for i in range(len(stat.get("mean", [])))]
-    print(f"{key} stats:")
-    for i, name in enumerate(names):
-        mean = stat["mean"][i]
-        std = stat["std"][i]
-        min_val = stat["min"][i]
-        max_val = stat["max"][i]
-        print(f"  {i}: {name}: mean={mean:.6f}, std={std:.6f}, min={min_val:.6f}, max={max_val:.6f}")
-
-print(f"Training dataset: {dataset_repo_id}")
-print(f"Dataset root: {dataset_root}")
-if source_repo_ids:
-    print("Source datasets:")
-    for repo_id in source_repo_ids:
-        print(f"  - {repo_id}")
-romoya_prepare = info.get("romoya_prepare")
-if romoya_prepare is not None:
-    print(f"Prepared dataset source: {romoya_prepare.get('source_repo_id')}")
-print_vector_stats("observation.state")
-print_vector_stats("action")
-PY
+python3 "${HELPER_DIR}/print_dataset_stats.py" \
+  "$DATASET_REPO_ID" \
+  "${FINAL_DATASET_ROOT}" \
+  "${DATASET_REPO_IDS[@]}"
 
 uv run "${UV_EXTRA_ARGS[@]}" lerobot-train \
   --config_path="${CONFIG_PATH}" \
@@ -381,3 +243,5 @@ uv run "${UV_EXTRA_ARGS[@]}" lerobot-train \
   --batch_size="${DEFAULT_BATCH_SIZE}" \
   --num_workers="${DEFAULT_NUM_WORKERS}" \
   --wandb.enable="${DEFAULT_WANDB_ENABLE}"
+
+destroy_vast_instance_if_configured

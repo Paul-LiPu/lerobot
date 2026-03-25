@@ -22,7 +22,7 @@ from datasets import Dataset
 from lerobot.datasets.io_utils import (
     hf_transform_to_torch,
 )
-from lerobot.datasets.sampler import EpisodeAwareSampler
+from lerobot.datasets.sampler import EpisodeAwareSampler, RangeEventSampler
 
 
 def calculate_episode_data_index(hf_dataset: Dataset) -> dict[str, torch.Tensor]:
@@ -134,3 +134,145 @@ def test_partial_episode_drop_warns(caplog):
     # Episode 0 is skipped (1 frame, drop 1), Episode 1 keeps frames 2-5
     assert sampler.indices == [2, 3, 4, 5]
     assert "Episode 0" in caplog.text
+
+
+def test_range_event_sampler_marks_special_frames_within_horizon():
+    states = torch.tensor(
+        [
+            [0.0],
+            [0.2],
+            [0.8],
+            [0.0],
+            [0.7],
+            [0.0],
+        ],
+        dtype=torch.float32,
+    )
+    sampler = RangeEventSampler(
+        [0, 3],
+        [3, 6],
+        observation_states=states,
+        state_feature_names=["gripper.pos"],
+        event_state_names=["gripper.pos"],
+        event_low=0.1,
+        event_high=0.75,
+        event_horizon=1,
+        event_probability=0.5,
+        shuffle=False,
+    )
+    assert sampler.indices == [0, 1, 2, 3, 4, 5]
+    assert sampler.special_indices == [0, 1, 3, 4]
+    assert len(sampler) == 6
+    assert list(sampler) == [0, 1, 2, 3, 4, 5]
+
+
+def test_range_event_sampler_uses_open_interval():
+    states = torch.tensor(
+        [
+            [0.1],
+            [0.5],
+            [0.75],
+        ],
+        dtype=torch.float32,
+    )
+    sampler = RangeEventSampler(
+        [0],
+        [3],
+        observation_states=states,
+        state_feature_names=["gripper.pos"],
+        event_state_names=["gripper.pos"],
+        event_low=0.1,
+        event_high=0.75,
+        event_horizon=0,
+        event_probability=0.5,
+        shuffle=False,
+    )
+    assert sampler.special_indices == [1]
+
+
+def test_range_event_sampler_clips_to_episode_end():
+    states = torch.tensor(
+        [
+            [0.0],
+            [0.0],
+            [0.3],
+            [0.0],
+        ],
+        dtype=torch.float32,
+    )
+    sampler = RangeEventSampler(
+        [0, 2],
+        [2, 4],
+        observation_states=states,
+        state_feature_names=["gripper.pos"],
+        event_state_names=["gripper.pos"],
+        event_low=0.1,
+        event_high=0.5,
+        event_horizon=2,
+        event_probability=0.5,
+        shuffle=False,
+    )
+    assert sampler.special_indices == [2]
+
+
+def test_range_event_sampler_warns_and_falls_back_when_special_set_empty(caplog):
+    states = torch.zeros((4, 1), dtype=torch.float32)
+    with caplog.at_level(logging.WARNING, logger="lerobot.datasets.sampler"):
+        sampler = RangeEventSampler(
+            [0],
+            [4],
+            observation_states=states,
+            state_feature_names=["gripper.pos"],
+            event_state_names=["gripper.pos"],
+            event_low=0.1,
+            event_high=0.5,
+            event_horizon=1,
+            event_probability=0.7,
+            shuffle=True,
+        )
+    assert sampler.special_indices == []
+    assert len(list(sampler)) == 4
+    assert "found no special-event frames" in caplog.text
+
+
+def test_range_event_sampler_drop_last_frames_affects_special_pool():
+    states = torch.tensor(
+        [
+            [0.0],
+            [0.0],
+            [0.4],
+        ],
+        dtype=torch.float32,
+    )
+    sampler = RangeEventSampler(
+        [0],
+        [3],
+        observation_states=states,
+        state_feature_names=["gripper.pos"],
+        event_state_names=["gripper.pos"],
+        event_low=0.1,
+        event_high=0.5,
+        event_horizon=2,
+        event_probability=0.5,
+        drop_n_last_frames=1,
+        shuffle=False,
+    )
+    assert sampler.indices == [0, 1]
+    assert sampler.special_indices == [0, 1]
+
+
+def test_range_event_sampler_rejects_unknown_state_names():
+    states = torch.zeros((2, 1), dtype=torch.float32)
+    with pytest.raises(ValueError, match="Missing: \\['DO_1'\\]"):
+        RangeEventSampler(
+            [0],
+            [2],
+            observation_states=states,
+            state_feature_names=["gripper.pos"],
+            event_state_names=["DO_1"],
+            event_low=0.1,
+            event_high=0.5,
+            event_horizon=0,
+            event_probability=0.5,
+            shuffle=False,
+        )

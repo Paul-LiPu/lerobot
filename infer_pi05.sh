@@ -31,6 +31,7 @@ DEFAULT_N_ACTION_STEPS=30
 DEFAULT_NUM_EPISODES=10
 DEFAULT_EPISODE_TIME_S=60
 DEFAULT_RESET_TIME_S=60
+DEFAULT_DEBUG=0
 CAMERA_RESOLUTION="${CAMERA_RESOLUTION:-1080p}"
 
 case "${CAMERA_RESOLUTION}" in
@@ -102,7 +103,7 @@ fi
 
 bash setup_cams.sh "${CAMERA_WIDTH}" "${CAMERA_HEIGHT}"
 
-uv run --extra romoya --extra pi lerobot-record \
+LEROBOT_DEBUG="${DEFAULT_DEBUG}" uv run --extra romoya --extra pi lerobot-record \
   --dataset.fps=30 \
   --dataset.vcodec=h264_nvenc \
   --trace_path=infer-pi05-trace.json \

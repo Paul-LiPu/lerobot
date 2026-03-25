@@ -27,7 +27,7 @@ DEFAULT_N_ACTION_STEPS=30
 DEFAULT_NUM_EPISODES=10
 DEFAULT_EPISODE_TIME_S=60
 DEFAULT_RESET_TIME_S=60
-DEFAULT_DEBUG_DO1=0
+DEFAULT_DEBUG=0
 CAMERA_RESOLUTION="${CAMERA_RESOLUTION:-360p}"
 
 case "${CAMERA_RESOLUTION}" in
@@ -89,7 +89,7 @@ bash setup_cams.sh "${CAMERA_WIDTH}" "${CAMERA_HEIGHT}"
 
   # --resume=true \
   #   --robot.gripper_closed_position=82.0 \
-ROMOYA_DEBUG_DO1="${DEFAULT_DEBUG_DO1}" uv run --extra romoya lerobot-record \
+LEROBOT_DEBUG="${DEFAULT_DEBUG}" uv run --extra romoya lerobot-record \
   --dataset.fps=30 \
   --robot.type=romoya_lebai_follower \
   --robot.ip=192.168.50.172 \
@@ -113,6 +113,5 @@ ROMOYA_DEBUG_DO1="${DEFAULT_DEBUG_DO1}" uv run --extra romoya lerobot-record \
   --dataset.streaming_encoding=true \
   --dataset.encoder_threads=4 \
   --policy.path="${POLICY_PATH}" \
-  --policy.do_threshold=0.5 \
   --policy.n_action_steps="${DEFAULT_N_ACTION_STEPS}" \
   "${EXTRA_ARGS[@]}"

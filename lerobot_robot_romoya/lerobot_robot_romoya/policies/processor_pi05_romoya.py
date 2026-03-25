@@ -53,7 +53,8 @@ def make_pi05_romoya_pre_post_processors(
         binary_state=config.binary_state,
         binary_action=config.binary_action,
         delta_action=config.delta_action,
-        do_threshold=0.5,
+        do_threshold=config.do_threshold,
+        gripper_threshold=config.gripper_threshold,
         sigmoid_do_outputs=False,
     )
 

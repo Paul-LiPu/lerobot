@@ -27,6 +27,8 @@ class PI05RomoyaConfig(PI05Config):
     binary_state: list[float | None] = field(default_factory=list)
     binary_action: list[tuple[float, float, float] | None] = field(default_factory=list)
     delta_action: list[bool] = field(default_factory=list)
+    do_threshold: float | None = None
+    gripper_threshold: float | None = None
 
     @property
     def transform_spec(self) -> RomoyaTransformSpec:

@@ -179,6 +179,8 @@ class ImageTransformsConfig:
     # By default, transforms are applied in Torchvision's suggested order (shown below).
     # Set this to True to apply them in a random order.
     random_order: bool = False
+    # Transforms in this map are always applied first, in declaration order, before the random subset below.
+    pre_tfs: dict[str, ImageTransformConfig] = field(default_factory=dict)
     tfs: dict[str, ImageTransformConfig] = field(
         default_factory=lambda: {
             "brightness": ImageTransformConfig(
@@ -236,6 +238,10 @@ class ImageTransforms(Transform):
         super().__init__()
         self._cfg = cfg
 
+        pre_transforms = []
+        for _, tf_cfg in cfg.pre_tfs.items():
+            pre_transforms.append(make_transform_from_config(tf_cfg))
+
         self.weights = []
         self.transforms = {}
         for tf_name, tf_cfg in cfg.tfs.items():
@@ -246,14 +252,19 @@ class ImageTransforms(Transform):
             self.weights.append(tf_cfg.weight)
 
         n_subset = min(len(self.transforms), cfg.max_num_transforms)
-        if n_subset == 0 or not cfg.enable:
+        if not cfg.enable:
             self.tf = v2.Identity()
+        elif n_subset == 0:
+            self.tf = v2.Compose(pre_transforms) if pre_transforms else v2.Identity()
         else:
-            self.tf = RandomSubsetApply(
+            random_subset_tf = RandomSubsetApply(
                 transforms=list(self.transforms.values()),
                 p=self.weights,
                 n_subset=n_subset,
                 random_order=cfg.random_order,
+            )
+            self.tf = (
+                v2.Compose([*pre_transforms, random_subset_tf]) if pre_transforms else random_subset_tf
             )
 
     def forward(self, *inputs: Any) -> Any:

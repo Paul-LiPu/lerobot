@@ -34,6 +34,28 @@ TRAIN_CONFIG_NAME = "train_config.json"
 
 
 @dataclass
+class EventSamplerConfig:
+    enable: bool = False
+    state_names: list[str] = field(default_factory=list)
+    low: float = 0.0
+    high: float = 1.0
+    horizon: int = 0
+    probability: float = 0.0
+
+    def __post_init__(self) -> None:
+        if not 0.0 <= self.probability <= 1.0:
+            raise ValueError(f"event_sampler.probability must be in [0, 1], got {self.probability}")
+        if self.low >= self.high:
+            raise ValueError(
+                f"event_sampler.low must be strictly smaller than event_sampler.high, got {self.low} >= {self.high}"
+            )
+        if self.horizon < 0:
+            raise ValueError(f"event_sampler.horizon must be >= 0, got {self.horizon}")
+        if self.enable and len(self.state_names) == 0:
+            raise ValueError("event_sampler.state_names must be non-empty when event_sampler.enable is true.")
+
+
+@dataclass
 class TrainPipelineConfig(HubMixin):
     dataset: DatasetConfig
     env: envs.EnvConfig | None = None
@@ -69,6 +91,7 @@ class TrainPipelineConfig(HubMixin):
     eval: EvalConfig = field(default_factory=EvalConfig)
     wandb: WandBConfig = field(default_factory=WandBConfig)
     peft: PeftConfig | None = None
+    event_sampler: EventSamplerConfig = field(default_factory=EventSamplerConfig)
 
     # RA-BC (Reward-Aligned Behavior Cloning) parameters
     use_rabc: bool = False  # Enable reward-weighted training
@@ -131,6 +154,9 @@ class TrainPipelineConfig(HubMixin):
 
         if isinstance(self.dataset.repo_id, list):
             raise NotImplementedError("LeRobotMultiDataset is not currently implemented.")
+
+        if self.event_sampler.enable and self.dataset.streaming:
+            raise NotImplementedError("event_sampler is only supported for non-streaming datasets.")
 
         if not self.use_policy_training_preset and (self.optimizer is None or self.scheduler is None):
             raise ValueError("Optimizer and Scheduler must be set when the policy presets are not used.")

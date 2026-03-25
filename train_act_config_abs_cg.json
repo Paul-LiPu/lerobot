@@ -1,0 +1,114 @@
+{
+  "dataset": {
+    "repo_id": "SET_ME/DATASET",
+    "image_transforms": {
+      "enable": true,
+      "max_num_transforms": 2,
+      "random_order": false,
+      "pre_tfs": {
+        "resize": {
+          "type": "Resize",
+          "kwargs": {
+            "size": [360, 640]
+          }
+        }
+      },
+      "tfs": {
+        "brightness": {
+          "weight": 1.0,
+          "type": "ColorJitter",
+          "kwargs": {
+            "brightness": [0.9, 1.1]
+          }
+        },
+        "contrast": {
+          "weight": 1.0,
+          "type": "ColorJitter",
+          "kwargs": {
+            "contrast": [0.9, 1.1]
+          }
+        },
+        "saturation": {
+          "weight": 0.5,
+          "type": "ColorJitter",
+          "kwargs": {
+            "saturation": [0.9, 1.1]
+          }
+        },
+        "hue": {
+          "weight": 0.25,
+          "type": "ColorJitter",
+          "kwargs": {
+            "hue": [-0.02, 0.02]
+          }
+        },
+        "sharpness": {
+          "weight": 0.5,
+          "type": "SharpnessJitter",
+          "kwargs": {
+            "sharpness": [0.9, 1.1]
+          }
+        }
+      }
+    }
+  },
+  "policy": {
+    "type": "act_romoya",
+    "action_mode": null,
+    "device": "cuda",
+    "state_feature_names": [
+      "joint1.pos",
+      "joint2.pos",
+      "joint3.pos",
+      "joint4.pos",
+      "joint5.pos",
+      "joint6.pos",
+      "gripper.pos"
+    ],
+    "action_feature_names": [
+      "joint1.pos",
+      "joint2.pos",
+      "joint3.pos",
+      "joint4.pos",
+      "joint5.pos",
+      "joint6.pos",
+      "gripper.pos"
+    ],
+    "binary_state": [null, null, null, null, null, null, null],
+    "binary_action": [null, null, null, null, null, null, [50.0, 0.0, 99.0]],
+    "delta_action": [false, false, false, false, false, false, false],
+    "observation_image_resize_shape": [360, 640],
+    "input_features": {
+      "observation.state": {
+        "type": "STATE",
+        "shape": [7]
+      },
+      "observation.images.wrist": {
+        "type": "VISUAL",
+        "shape": [3, 1080, 1920]
+      },
+      "observation.images.top": {
+        "type": "VISUAL",
+        "shape": [3, 1080, 1920]
+      },
+      "observation.images.side": {
+        "type": "VISUAL",
+        "shape": [3, 1080, 1920]
+      }
+    },
+    "repo_id": "SET_ME/POLICY"
+  },
+  "batch_size": 8,
+  "steps": 100000,
+  "event_sampler": {
+    "enable": true,
+    "state_names": ["gripper.pos"],
+    "low": 1.0,
+    "high": 97.0,
+    "horizon": 60,
+    "probability": 0.3
+  },
+  "wandb": {
+    "enable": true
+  }
+}
