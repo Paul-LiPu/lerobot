@@ -17,14 +17,23 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 HELPER_DIR="${SCRIPT_DIR}/lerobot_robot_romoya/helper"
 
-CONFIG_PATH="${TRAIN_CONFIG_PATH:-${SCRIPT_DIR}/train_act_config_abs_cg.json}"
-DEFAULT_DATASET_REPOS="PL2011/lebai-gripper-black-taped-box-2"
-DEFAULT_POLICY_REPO_NAME="act_sjaj_gripper-box"
-DEFAULT_OUTPUT_NAME="act_sjaj_gripper"
+CONFIG_PATH="${TRAIN_CONFIG_PATH:-${SCRIPT_DIR}/train_act_config_abs.json}"
+DEFAULT_DATASET_REPOS="PL2011/lebai-gripper-black-taped-box-2-orig"
+DEFAULT_POLICY_REPO_NAME="act_sjaj_gripper-box-orig"
+DEFAULT_OUTPUT_NAME="act_sjaj_gripper-box-orig"
 DEFAULT_POLICY_TYPE="act_romoya"
 DEFAULT_DEVICE="cuda"
 DEFAULT_STEPS=20000
 DEFAULT_BATCH_SIZE=48
+
+# CONFIG_PATH="${TRAIN_CONFIG_PATH:-${SCRIPT_DIR}/train_act_config_abs_cg.json}"
+# DEFAULT_DATASET_REPOS="PL2011/lebai-gripper-black-taped-box-2"
+# DEFAULT_POLICY_REPO_NAME="act_sjaj_gripper-box"
+# DEFAULT_OUTPUT_NAME="act_sjaj_gripper"
+# DEFAULT_POLICY_TYPE="act_romoya"
+# DEFAULT_DEVICE="cuda"
+# DEFAULT_STEPS=20000
+# DEFAULT_BATCH_SIZE=48
 
 # CONFIG_PATH="${TRAIN_CONFIG_PATH:-${SCRIPT_DIR}/train_pi05_romoya_config.json}"
 # DEFAULT_DATASET_REPOS=(

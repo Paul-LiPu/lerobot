@@ -5,6 +5,14 @@
       "enable": true,
       "max_num_transforms": 2,
       "random_order": false,
+      "pre_tfs": {
+        "resize": {
+          "type": "Resize",
+          "kwargs": {
+            "size": [360, 640]
+          }
+        }
+      },
       "tfs": {
         "brightness": {
           "weight": 1.0,
@@ -81,6 +89,7 @@
     "binary_state": [null, null, null, null, null, null, 90.0],
     "binary_action": [null, null, null, null, null, null, [90.0, 0.0, 99.0]],
     "delta_action": [false, false, false, false, false, false, false],
+    "observation_image_resize_shape": [360, 640],
     "input_features": {
       "observation.state": {
         "type": "STATE",
@@ -88,15 +97,15 @@
       },
       "observation.images.wrist": {
         "type": "VISUAL",
-        "shape": [3, 360, 640]
+        "shape": [3, 1080, 1920]
       },
       "observation.images.top": {
         "type": "VISUAL",
-        "shape": [3, 360, 640]
+        "shape": [3, 1080, 1920]
       },
       "observation.images.side": {
         "type": "VISUAL",
-        "shape": [3, 360, 640]
+        "shape": [3, 1080, 1920]
       }
     },
     "repo_id": "SET_ME/POLICY"
