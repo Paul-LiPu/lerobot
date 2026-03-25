@@ -295,8 +295,15 @@ class LebaiFollower(Robot):
                     self.set_claw(gripper_target, force=gripper_force)
                 self._last_gripper_target = gripper_target
                 self._last_gripper_force = gripper_force
-            except Exception:
-                logger.warning("%s failed to apply gripper command.", self, exc_info=True)
+            except Exception as exc:
+                logger.warning(
+                    "%s failed to apply gripper command pos=%s force=%s: %s",
+                    self,
+                    gripper_target,
+                    gripper_force if gripper_force is not None else self.config.gripper_force,
+                    exc,
+                    exc_info=True,
+                )
             finally:
                 self._gripper_busy.clear()
 
@@ -316,15 +323,15 @@ class LebaiFollower(Robot):
                     with self._trace_span("ee.set_do", {"device": "DO_0", "value": do0_target}):
                         self.set_do("DO_0", 0, do0_target)
                     self._last_do0_target = do0_target
-                except Exception:
-                    logger.warning("%s failed to apply DO_0 command.", self, exc_info=True)
+                except Exception as exc:
+                    logger.warning("%s failed to apply DO_0 command value=%s: %s", self, do0_target, exc, exc_info=True)
             if do1_target is not None and (self._last_do1_target is None or do1_target != self._last_do1_target):
                 try:
                     with self._trace_span("ee.set_do", {"device": "DO_1", "value": do1_target}):
                         self.set_do("DO_1", 1, do1_target)
                     self._last_do1_target = do1_target
-                except Exception:
-                    logger.warning("%s failed to apply DO_1 command.", self, exc_info=True)
+                except Exception as exc:
+                    logger.warning("%s failed to apply DO_1 command value=%s: %s", self, do1_target, exc, exc_info=True)
             self._do_busy.clear()
 
     def _queue_gripper_command(self, gripper_target: int, gripper_force: int) -> None:

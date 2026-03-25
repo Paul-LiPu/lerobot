@@ -31,8 +31,12 @@ DEFAULT_N_ACTION_STEPS=30
 DEFAULT_NUM_EPISODES=10
 DEFAULT_EPISODE_TIME_S=60
 DEFAULT_RESET_TIME_S=60
-DEFAULT_DEBUG=0
+DEFAULT_DEBUG=1
 CAMERA_RESOLUTION="${CAMERA_RESOLUTION:-1080p}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+export TORCHINDUCTOR_CACHE_DIR="${SCRIPT_DIR}/.torchinductor_cache"
+export TRITON_CACHE_DIR="${SCRIPT_DIR}/.triton_cache"
 
 case "${CAMERA_RESOLUTION}" in
   1080p)
@@ -57,7 +61,7 @@ EVAL_DATASET_NAME="${1:-${DEFAULT_EVAL_DATASET_NAME}}"
 SINGLE_TASK="${2:-${DEFAULT_SINGLE_TASK}}"
 POLICY_NAME="${3:-${DEFAULT_POLICY_NAME}}"
 INITIAL_POSE_PATH_ARG="${4:-}"
-DEFAULT_INITIAL_POSE_PATH="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$INITIAL_POSE_FILE"
+DEFAULT_INITIAL_POSE_PATH="${SCRIPT_DIR}/$INITIAL_POSE_FILE"
 INITIAL_POSE_PATH="${INITIAL_POSE_PATH_ARG:-${INITIAL_POSE_PATH:-${DEFAULT_INITIAL_POSE_PATH}}}"
 
 HF_USER=$(
@@ -129,5 +133,6 @@ LEROBOT_DEBUG="${DEFAULT_DEBUG}" uv run --extra romoya --extra pi lerobot-record
   --dataset.encoder_threads=4 \
   --policy.path="${POLICY_PATH}" \
   --policy.n_action_steps="${DEFAULT_N_ACTION_STEPS}" \
+  --policy.gripper_threshold=0.5 \
   --teleop_end_effector_override=false \
   "${EXTRA_ARGS[@]}"

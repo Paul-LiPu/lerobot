@@ -48,6 +48,18 @@
     "type": "act_romoya",
     "action_mode": null,
     "device": "cuda",
+    "raw_action_feature_names": [
+      "joint1.pos",
+      "joint2.pos",
+      "joint3.pos",
+      "joint4.pos",
+      "joint5.pos",
+      "joint6.pos",
+      "gripper.pos",
+      "gripper.force",
+      "DO_0",
+      "DO_1"
+    ],
     "state_feature_names": [
       "joint1.pos",
       "joint2.pos",

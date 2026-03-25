@@ -15,20 +15,26 @@ set -euo pipefail
 #   - Arg 4: initial pose path
 #   - HF_USER is detected automatically from `hf auth whoami`
 
-DEFAULT_EVAL_DATASET_NAME="eval_lebai_act_romoya_grip_black_taped_box"
+INITIAL_POSE_FILE="initial_pose_lebai-gripper-black-taped-box-2_0.json"
+DEFAULT_EVAL_DATASET_NAME="eval_act_sjaj_gripper-box"
 # DEFAULT_SINGLE_TASK="pick up the plate using suction cup"
 DEFAULT_SINGLE_TASK="Grab the ingredient box with gripper"
 # DEFAULT_POLICY_NAME="act_sjadj_lebai-suction-plate"
 # DEFAULT_POLICY_NAME="act_sjadj_lebai-suction-plate_side"
 # DEFAULT_POLICY_NAME="act_sjaj_lebai-suction-plate_side"
 # DEFAULT_POLICY_NAME="act_sjaj_lebai-gripper-box"
-DEFAULT_POLICY_NAME="act_sjaj_lebai-gripper-black-tape-box"
+# DEFAULT_POLICY_NAME="act_sjaj_lebai-gripper-black-tape-box"
+DEFAULT_POLICY_NAME="act_sjaj_gripper-box"
 DEFAULT_N_ACTION_STEPS=30
 DEFAULT_NUM_EPISODES=10
 DEFAULT_EPISODE_TIME_S=60
 DEFAULT_RESET_TIME_S=60
-DEFAULT_DEBUG=0
+DEFAULT_DEBUG=1
 CAMERA_RESOLUTION="${CAMERA_RESOLUTION:-360p}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+export TORCHINDUCTOR_CACHE_DIR="${SCRIPT_DIR}/.torchinductor_cache"
+export TRITON_CACHE_DIR="${SCRIPT_DIR}/.triton_cache"
 
 case "${CAMERA_RESOLUTION}" in
   1080p)
@@ -53,8 +59,7 @@ EVAL_DATASET_NAME="${1:-${DEFAULT_EVAL_DATASET_NAME}}"
 SINGLE_TASK="${2:-${DEFAULT_SINGLE_TASK}}"
 POLICY_NAME="${3:-${DEFAULT_POLICY_NAME}}"
 INITIAL_POSE_PATH_ARG="${4:-}"
-# DEFAULT_INITIAL_POSE_PATH="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/initial_pose_lebai-suction-plate_25.json"
-DEFAULT_INITIAL_POSE_PATH="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/initial_pose_lebai-gripper-box_0.json"
+DEFAULT_INITIAL_POSE_PATH="${SCRIPT_DIR}/${INITIAL_POSE_FILE}"
 INITIAL_POSE_PATH="${INITIAL_POSE_PATH_ARG:-${INITIAL_POSE_PATH:-${DEFAULT_INITIAL_POSE_PATH}}}"
 
 HF_USER=$(
@@ -80,9 +85,22 @@ else
   POLICY_PATH="${HF_USER}/${POLICY_NAME}"
 fi
 
+if [[ -n "${HF_LEROBOT_HOME:-}" ]]; then
+  LEROBOT_HOME="${HF_LEROBOT_HOME}"
+elif [[ -n "${HF_HOME:-}" ]]; then
+  LEROBOT_HOME="${HF_HOME}/lerobot"
+else
+  LEROBOT_HOME="${HOME}/.cache/huggingface/lerobot"
+fi
+
+DATASET_ROOT_PATH="${LEROBOT_HOME}/${DATASET_REPO_ID}"
+
 EXTRA_ARGS=()
 if [[ -n "${INITIAL_POSE_PATH}" ]]; then
   EXTRA_ARGS+=(--initial_pose_path="${INITIAL_POSE_PATH}")
+fi
+if [[ -d "${DATASET_ROOT_PATH}" ]]; then
+  EXTRA_ARGS+=(--resume=true)
 fi
 
 bash setup_cams.sh "${CAMERA_WIDTH}" "${CAMERA_HEIGHT}"

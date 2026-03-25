@@ -489,7 +489,9 @@ def make_policy(
             if hasattr(cfg, "raw_observation_state_feature_names") and OBS_STATE in ds_meta.features:
                 cfg.raw_observation_state_feature_names = list(raw_state_names or [])
             if hasattr(cfg, "raw_action_feature_names") and ACTION in ds_meta.features:
-                cfg.raw_action_feature_names = list(raw_action_names or [])
+                current_raw_action_names = list(getattr(cfg, "raw_action_feature_names", []) or [])
+                if not current_raw_action_names:
+                    cfg.raw_action_feature_names = list(raw_action_names or [])
     else:
         if not cfg.pretrained_path:
             logging.warning(

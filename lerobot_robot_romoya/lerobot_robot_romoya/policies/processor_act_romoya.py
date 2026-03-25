@@ -41,6 +41,25 @@ def _debug_enabled() -> bool:
     return os.getenv("LEROBOT_DEBUG", "").lower() in {"1", "true", "yes", "on"}
 
 
+def _to_postprocess_binary_action(
+    binary_action: list[tuple[float, float, float] | None],
+) -> list[tuple[float, float, float] | None]:
+    """Convert raw-space binary specs to transformed-space specs for model outputs.
+
+    Prepared Romoya datasets train binary action dimensions as 0/1 targets. At inference
+    time, the postprocessor should therefore threshold in transformed space at 0.5, then
+    map the class back to the original low/high robot command values.
+    """
+    converted = []
+    for spec in binary_action:
+        if spec is None:
+            converted.append(None)
+            continue
+        _, low, high = spec
+        converted.append((0.5, low, high))
+    return converted
+
+
 @dataclass
 class _ActRomoyaSharedContext:
     latest_raw_observation_state: Tensor | None = None
@@ -252,6 +271,7 @@ class ACTRomoyaPostprocessStep(ProcessorStep):
             gripper_action_name=self.gripper_action_name,
             do_action_names=self.do_action_names,
         )
+        self._postprocess_binary_action = _to_postprocess_binary_action(self._spec.binary_action)
         self._context = _get_context(self.context_id)
 
     def __call__(self, transition):
@@ -270,7 +290,7 @@ class ACTRomoyaPostprocessStep(ProcessorStep):
             action[..., do_idx] = torch.sigmoid(action[..., do_idx])
 
         binary_action = []
-        for name, spec in zip(self._spec.action_feature_names, self._spec.binary_action, strict=True):
+        for name, spec in zip(self._spec.action_feature_names, self._postprocess_binary_action, strict=True):
             if name == "gripper.pos" and spec is not None and self.gripper_threshold is not None:
                 _, low, high = spec
                 binary_action.append((self.gripper_threshold, low, high))
@@ -336,7 +356,7 @@ class ACTRomoyaPostprocessStep(ProcessorStep):
             "state_feature_names": self._spec.state_feature_names,
             "action_feature_names": self._spec.action_feature_names,
             "binary_state": self._spec.binary_state,
-            "binary_action": self._spec.binary_action,
+            "binary_action": self._postprocess_binary_action,
             "delta_action": self._spec.delta_action,
             "state_feature_names_to_keep": self.state_feature_names_to_keep,
             "raw_observation_state_feature_names": self.raw_observation_state_feature_names,
