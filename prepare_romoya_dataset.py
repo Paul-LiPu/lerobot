@@ -113,10 +113,10 @@ def _build_config(policy_dict: dict[str, Any], dataset: LeRobotDataset):
             device="cpu",
         ),
     )
-    if not cfg.raw_observation_state_feature_names:
-        cfg.raw_observation_state_feature_names = list(dataset.meta.features[OBS_STATE].get("names", []))
-    if not cfg.raw_action_feature_names:
-        cfg.raw_action_feature_names = list(dataset.meta.features[ACTION].get("names", []))
+    # Dataset preparation must validate and transform against the source dataset's raw schema,
+    # which can differ from the raw schema we want to preserve in saved policy configs for live inference.
+    cfg.raw_observation_state_feature_names = list(dataset.meta.features[OBS_STATE].get("names", []))
+    cfg.raw_action_feature_names = list(dataset.meta.features[ACTION].get("names", []))
     cfg.validate_features()
     return cfg
 
