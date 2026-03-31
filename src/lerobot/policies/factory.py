@@ -210,6 +210,7 @@ class ProcessorConfigKwargs(TypedDict, total=False):
     preprocessor_overrides: dict[str, Any] | None
     postprocessor_overrides: dict[str, Any] | None
     dataset_stats: dict[str, dict[str, torch.Tensor]] | None
+    force_create_processors: bool | None
 
 
 def make_pre_post_processors(
@@ -242,6 +243,20 @@ def make_pre_post_processors(
         NotImplementedError: If a processor factory is not implemented for the given
             policy configuration type.
     """
+    # PI0.5 Romoya training intentionally reuses base model weights from `pretrained_path`, but it
+    # must build fresh Romoya-aware processors instead of loading the base PI0.5 processor JSONs.
+    # Inference should still load the saved processor artifacts from the trained model repo.
+    force_create_processors = bool(kwargs.get("force_create_processors", False))
+    if policy_cfg.__class__.__name__ == "PI05RomoyaConfig" and force_create_processors:
+        from lerobot_robot_romoya.policies.processor_pi05_romoya import (
+            make_pi05_romoya_pre_post_processors,
+        )
+
+        return make_pi05_romoya_pre_post_processors(
+            config=policy_cfg,
+            dataset_stats=kwargs.get("dataset_stats"),
+        )
+
     if pretrained_path:
         # TODO(Steven): Temporary patch, implement correctly the processors for Gr00t
         if isinstance(policy_cfg, GrootConfig):

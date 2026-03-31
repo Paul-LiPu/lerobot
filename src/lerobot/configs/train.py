@@ -41,18 +41,45 @@ class EventSamplerConfig:
     high: float = 1.0
     horizon: int = 0
     probability: float = 0.0
+    change_state_names: list[str] = field(default_factory=list)
+    change_thresholds: list[float] = field(default_factory=list)
+    combine_mode: str = "or"
 
     def __post_init__(self) -> None:
+        self.state_names = [name.strip() for name in self.state_names if name.strip()]
+        cleaned_change_pairs = [
+            (name.strip(), threshold)
+            for name, threshold in zip(self.change_state_names, self.change_thresholds, strict=True)
+            if name.strip()
+        ]
+        self.change_state_names = [name for name, _ in cleaned_change_pairs]
+        self.change_thresholds = [threshold for _, threshold in cleaned_change_pairs]
+
         if not 0.0 <= self.probability <= 1.0:
             raise ValueError(f"event_sampler.probability must be in [0, 1], got {self.probability}")
-        if self.low >= self.high:
+        if self.state_names and self.low >= self.high:
             raise ValueError(
                 f"event_sampler.low must be strictly smaller than event_sampler.high, got {self.low} >= {self.high}"
             )
         if self.horizon < 0:
             raise ValueError(f"event_sampler.horizon must be >= 0, got {self.horizon}")
-        if self.enable and len(self.state_names) == 0:
-            raise ValueError("event_sampler.state_names must be non-empty when event_sampler.enable is true.")
+        if len(self.change_state_names) != len(self.change_thresholds):
+            raise ValueError(
+                "event_sampler.change_state_names and event_sampler.change_thresholds must have the same length."
+            )
+        if any(threshold < 0.0 for threshold in self.change_thresholds):
+            raise ValueError(
+                "event_sampler.change_thresholds must all be >= 0. "
+                f"Got {self.change_thresholds}"
+            )
+        if self.combine_mode not in {"or"}:
+            raise ValueError(
+                f"event_sampler.combine_mode must be one of ['or'], got {self.combine_mode!r}"
+            )
+        if self.enable and len(self.state_names) == 0 and len(self.change_state_names) == 0:
+            raise ValueError(
+                "event_sampler requires at least one of state_names or change_state_names when enabled."
+            )
 
 
 @dataclass

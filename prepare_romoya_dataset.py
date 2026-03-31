@@ -178,6 +178,19 @@ def _resize_image_tensor(image: torch.Tensor, resize_shape: tuple[int, int]) -> 
     return resized
 
 
+def _camera_shapes_match_resize_target(dataset: LeRobotDataset, resize_shape: tuple[int, int]) -> bool:
+    resize_h, resize_w = resize_shape
+    for key in dataset.meta.camera_keys:
+        feature = dataset.meta.features.get(key, {})
+        shape = tuple(feature.get("shape", ()))
+        if len(shape) != 3:
+            return False
+        height, width = shape[0], shape[1]
+        if (height, width) != (resize_h, resize_w):
+            return False
+    return True
+
+
 def _transform_and_resize_dataset(
     dataset: LeRobotDataset,
     cfg: ACTRomoyaConfig,
@@ -278,7 +291,9 @@ def main() -> None:
         resize_shape = (args.resize_height, args.resize_width)
     else:
         resize_shape = _load_resize_shape(config_payload)
-    if resize_shape is not None and args.skip_videos:
+    should_resize_visuals = resize_shape is not None and not _camera_shapes_match_resize_target(dataset, resize_shape)
+
+    if should_resize_visuals and args.skip_videos:
         raise ValueError("Resizing during Romoya dataset preparation is not supported together with --skip-videos.")
 
     new_features = copy.deepcopy(dataset.meta.features)
@@ -292,7 +307,7 @@ def main() -> None:
         "shape": (len(cfg.action_feature_names),),
         "names": list(cfg.action_feature_names),
     }
-    if resize_shape is not None:
+    if should_resize_visuals:
         resize_h, resize_w = resize_shape
         for key in dataset.meta.camera_keys:
             feature = dict(new_features[key])
@@ -300,7 +315,7 @@ def main() -> None:
             feature["shape"] = (resize_h, resize_w, channels)
             new_features[key] = feature
 
-    if resize_shape is not None:
+    if should_resize_visuals:
         transformed_dataset = _transform_and_resize_dataset(
             dataset=dataset,
             cfg=cfg,

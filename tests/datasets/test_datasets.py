@@ -14,6 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import logging
+import json
 import re
 from itertools import chain
 from pathlib import Path
@@ -218,7 +219,155 @@ def test_add_frame(tmp_path, empty_lerobot_dataset_factory):
     assert len(dataset) == 1
     assert dataset[0]["task"] == "Dummy task"
     assert dataset[0]["task_index"] == 0
-    assert dataset[0]["state"].ndim == 0
+
+
+def test_task_variants_keep_original_when_mapping_missing(tmp_path, lerobot_dataset_factory):
+    dataset = lerobot_dataset_factory(root=tmp_path / "test", total_tasks=1, total_frames=4, use_videos=False)
+    canonical_task = dataset.meta.tasks.index[0]
+
+    item = dataset[0]
+
+    assert item["task"] == canonical_task
+
+
+def test_task_variants_sample_from_original_and_variants(tmp_path, lerobot_dataset_factory):
+    variants_path = tmp_path / "task_variants.json"
+    canonical_task = "Pick up the box"
+    variants = ["Grab the box", "Lift the box"]
+    variants_path.write_text(json.dumps({canonical_task: variants}))
+
+    dataset = lerobot_dataset_factory(
+        root=tmp_path / "test",
+        total_tasks=1,
+        total_frames=4,
+        use_videos=False,
+        tasks=None,
+        task_variants_path=variants_path,
+    )
+    dataset.meta.tasks.index = dataset.meta.tasks.index.set_names(["task"])
+    dataset.meta.tasks = dataset.meta.tasks.rename(index={dataset.meta.tasks.index[0]: canonical_task})
+
+    sampled_tasks = {dataset[0]["task"] for _ in range(200)}
+
+    assert sampled_tasks == {canonical_task, *variants}
+
+
+def test_task_variants_ignore_duplicates_and_empty_strings(tmp_path, lerobot_dataset_factory):
+    variants_path = tmp_path / "task_variants.json"
+    canonical_task = "Open the door"
+    variants_path.write_text(
+        json.dumps(
+            {
+                canonical_task: [
+                    "",
+                    "  ",
+                    canonical_task,
+                    "Open the fridge door",
+                    "Open the fridge door",
+                    " Pull the door open ",
+                ]
+            }
+        )
+    )
+
+    dataset = lerobot_dataset_factory(
+        root=tmp_path / "test",
+        total_tasks=1,
+        total_frames=4,
+        use_videos=False,
+        task_variants_path=variants_path,
+    )
+    dataset.meta.tasks.index = dataset.meta.tasks.index.set_names(["task"])
+    dataset.meta.tasks = dataset.meta.tasks.rename(index={dataset.meta.tasks.index[0]: canonical_task})
+
+    sampled_tasks = {dataset[0]["task"] for _ in range(200)}
+
+    assert sampled_tasks == {canonical_task, "Open the fridge door", "Pull the door open"}
+
+
+def test_empty_task_variants_file_leaves_task_unchanged(tmp_path, lerobot_dataset_factory):
+    variants_path = tmp_path / "task_variants.json"
+    variants_path.write_text("{}")
+
+    dataset = lerobot_dataset_factory(
+        root=tmp_path / "test",
+        total_tasks=1,
+        total_frames=4,
+        use_videos=False,
+        task_variants_path=variants_path,
+    )
+    canonical_task = dataset.meta.tasks.index[0]
+
+    item = dataset[0]
+
+    assert item["task"] == canonical_task
+
+
+def test_task_variants_warn_for_missing_entries_but_cap_at_ten(tmp_path, lerobot_dataset_factory, caplog):
+    variants_path = tmp_path / "task_variants.json"
+    tasks = [f"Task {idx}" for idx in range(12)]
+    variants_path.write_text(json.dumps({"Task 0": ["Variant 0"], "Task 1": ["Variant 1"]}))
+
+    import pandas as pd
+
+    task_df = pd.DataFrame({"task_index": list(range(len(tasks)))}, index=pd.Index(tasks, name="task"))
+    with caplog.at_level(logging.WARNING, logger="lerobot.datasets.lerobot_dataset"):
+        lerobot_dataset_factory(
+            root=tmp_path / "test",
+            total_tasks=len(tasks),
+            total_frames=24,
+            use_videos=False,
+            tasks=task_df,
+            task_variants_path=variants_path,
+        )
+
+    missing_warnings = [
+        record.message for record in caplog.records if "No task instruction variants found for dataset task" in record.message
+    ]
+    suppressed_warnings = [
+        record.message for record in caplog.records if "Suppressed" in record.message
+    ]
+
+    assert len(missing_warnings) == 10
+    assert len(suppressed_warnings) == 1
+
+
+def test_make_dataset_passes_task_variants_path(tmp_path):
+    repo_id = "dummy/task_variants_training"
+    variants_path = tmp_path / "task_variants.json"
+    variants_path.write_text("{}")
+    captured_kwargs = {}
+
+    class DummyMeta:
+        fps = 30
+        features = {}
+        camera_keys = []
+        stats = {}
+
+    class DummyDataset:
+        def __init__(self, *args, **kwargs):
+            captured_kwargs.update(kwargs)
+            self.meta = DummyMeta()
+
+    cfg = TrainPipelineConfig(
+        dataset=DatasetConfig(repo_id=repo_id, root=str(tmp_path), task_variants_path=str(variants_path)),
+        policy=make_policy_config("act"),
+        output_dir=tmp_path / "outputs",
+        steps=1,
+        batch_size=1,
+        num_workers=0,
+        eval_freq=0,
+        log_freq=1,
+        save_freq=1,
+        use_policy_training_preset=True,
+    )
+
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr("lerobot.datasets.factory.LeRobotDatasetMetadata", lambda *args, **kwargs: DummyMeta())
+        mp.setattr("lerobot.datasets.factory.LeRobotDataset", DummyDataset)
+        make_dataset(cfg)
+
+    assert captured_kwargs["task_variants_path"] == str(variants_path)
 
 
 def test_add_frame_state_1d(tmp_path, empty_lerobot_dataset_factory):

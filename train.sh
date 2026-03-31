@@ -17,19 +17,49 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 HELPER_DIR="${SCRIPT_DIR}/lerobot_robot_romoya/helper"
 
-CONFIG_PATH="${TRAIN_CONFIG_PATH:-${SCRIPT_DIR}/train_act_config_abs.json}"
-DEFAULT_DATASET_REPOS="PL2011/lebai-gripper-black-taped-box-2-orig"
-DEFAULT_POLICY_REPO_NAME="act_sjaj_gripper-box-orig"
-DEFAULT_OUTPUT_NAME="act_sjaj_gripper-box-orig"
-DEFAULT_POLICY_TYPE="act_romoya"
-DEFAULT_DEVICE="cuda"
-DEFAULT_STEPS=20000
-DEFAULT_BATCH_SIZE=48
+export TORCHINDUCTOR_CACHE_DIR="${SCRIPT_DIR}/.torchinductor_cache"
+export TRITON_CACHE_DIR="${SCRIPT_DIR}/.triton_cache"
+
+# CONFIG_PATH="${TRAIN_CONFIG_PATH:-${SCRIPT_DIR}/train_act_config_abs.json}"
+# DEFAULT_DATASET_REPOS="PL2011/lebai-gripper-black-taped-box-2-orig"
+# DEFAULT_POLICY_REPO_NAME="act_sjaj_gripper-box-orig"
+# DEFAULT_OUTPUT_NAME="act_sjaj_gripper-box-orig"
+# DEFAULT_POLICY_TYPE="act_romoya"
+# DEFAULT_DEVICE="cuda"
+# DEFAULT_STEPS=20000
+# DEFAULT_BATCH_SIZE=48
 
 # CONFIG_PATH="${TRAIN_CONFIG_PATH:-${SCRIPT_DIR}/train_act_config_abs_cg.json}"
 # DEFAULT_DATASET_REPOS="PL2011/lebai-gripper-black-taped-box-2"
 # DEFAULT_POLICY_REPO_NAME="act_sjaj_gripper-box"
 # DEFAULT_OUTPUT_NAME="act_sjaj_gripper"
+# DEFAULT_POLICY_TYPE="act_romoya"
+# DEFAULT_DEVICE="cuda"
+# DEFAULT_STEPS=20000
+# DEFAULT_BATCH_SIZE=48
+
+CONFIG_PATH="${TRAIN_CONFIG_PATH:-${SCRIPT_DIR}/train_act_config_abs_orig_bin_on.json}"
+DEFAULT_DATASET_REPOS="PL2011/lebai-gripper-black-taped-box-2-orig"
+DEFAULT_POLICY_REPO_NAME="act_sjaj_gripper-box-orig-bin-on"
+DEFAULT_OUTPUT_NAME="act_sjaj_gripper-box-orig-bin-on"
+DEFAULT_POLICY_TYPE="act_romoya"
+DEFAULT_DEVICE="cuda"
+DEFAULT_STEPS=20000
+DEFAULT_BATCH_SIZE=48
+
+# CONFIG_PATH="${TRAIN_CONFIG_PATH:-${SCRIPT_DIR}/train_act_config_abs_orig_cg_on.json}"
+# DEFAULT_DATASET_REPOS="PL2011/lebai-gripper-black-taped-box-2-orig"
+# DEFAULT_POLICY_REPO_NAME="act_sjaj_gripper-box-orig-cg-on"
+# DEFAULT_OUTPUT_NAME="act_sjaj_gripper-box-orig-cg-on"
+# DEFAULT_POLICY_TYPE="act_romoya"
+# DEFAULT_DEVICE="cuda"
+# DEFAULT_STEPS=20000
+# DEFAULT_BATCH_SIZE=48
+
+# CONFIG_PATH="${TRAIN_CONFIG_PATH:-${SCRIPT_DIR}/train_act_config_abs_refined_cg_off.json}"
+# DEFAULT_DATASET_REPOS="PL2011/lebai-gripper-black-taped-box-2"
+# DEFAULT_POLICY_REPO_NAME="act_sjaj_gripper-box-refined-cg-off"
+# DEFAULT_OUTPUT_NAME="act_sjaj_gripper-box-refined-cg-off"
 # DEFAULT_POLICY_TYPE="act_romoya"
 # DEFAULT_DEVICE="cuda"
 # DEFAULT_STEPS=20000
@@ -47,6 +77,19 @@ DEFAULT_BATCH_SIZE=48
 # DEFAULT_DEVICE="cuda"
 # DEFAULT_STEPS=40000
 # DEFAULT_BATCH_SIZE=24
+
+# CONFIG_PATH="${TRAIN_CONFIG_PATH:-${SCRIPT_DIR}/train_pi05_romoya_joint_gripper_do1_20k.json}"
+# DEFAULT_DATASET_REPOS=(
+#   "PL2011/lebai-open-fridge-door"
+#   "PL2011/lebai-gripper-plate"
+#   "PL2011/lebai-gripper-black-taped-box-2"
+# )
+# DEFAULT_POLICY_REPO_NAME="pi05_sjaj_joint-gripper-do1-20k"
+# DEFAULT_OUTPUT_NAME="pi05_sjaj_joint-gripper-do1-20k"
+# DEFAULT_POLICY_TYPE="pi05_romoya"
+# DEFAULT_DEVICE="cuda"
+# DEFAULT_STEPS=20000
+# DEFAULT_BATCH_SIZE=8
 
 
 DEFAULT_NUM_WORKERS=8

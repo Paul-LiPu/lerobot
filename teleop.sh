@@ -9,6 +9,7 @@ set -euo pipefail
 #   - Camera paths are expected at /dev/cam_wrist, /dev/cam_top, and /dev/cam_side
 
 CAMERA_RESOLUTION="${CAMERA_RESOLUTION:-360p}"
+GRIPPER_OPEN_POSITION="${GRIPPER_OPEN_POSITION:-99}"
 
 case "${CAMERA_RESOLUTION}" in
   1080p)
@@ -38,7 +39,8 @@ uv run --extra romoya lerobot-teleoperate \
   --robot.id=lebai_follower_arm \
   --robot.trace_path=teleop-trace.json \
   --robot.cameras="{ wrist: {type: opencv, index_or_path: /dev/cam_wrist, width: ${CAMERA_WIDTH}, height: ${CAMERA_HEIGHT}, fps: 30, fourcc: MJPG}, top: {type: opencv, index_or_path: /dev/cam_top, width: ${CAMERA_WIDTH}, height: ${CAMERA_HEIGHT}, fps: 30, fourcc: MJPG}, side: {type: opencv, index_or_path: /dev/cam_side, width: ${CAMERA_WIDTH}, height: ${CAMERA_HEIGHT}, fps: 30, fourcc: MJPG}}" \
-  --robot.gripper_closed_position=82.0 \
+  --robot.gripper_open_position=60 \
+  --robot.gripper_closed_position=0 \
   --robot.gripper_force=100 \
   --robot.acceleration=1.0 \
   --robot.velocity=1.0 \

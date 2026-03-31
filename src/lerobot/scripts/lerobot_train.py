@@ -293,6 +293,12 @@ def train(cfg: TrainPipelineConfig, accelerator: Accelerator | None = None):
             },
         }
 
+    if cfg.policy.type == "pi05_romoya":
+        # PI0.5 Romoya should reuse base weights from `pretrained_path`, but must build fresh
+        # Romoya-aware processors during training so the saved checkpoint contains the correct
+        # Romoya pre/post steps instead of the base PI0.5 processor JSONs.
+        processor_kwargs["force_create_processors"] = True
+
     preprocessor, postprocessor = make_pre_post_processors(
         policy_cfg=cfg.policy,
         pretrained_path=cfg.policy.pretrained_path,
@@ -358,10 +364,17 @@ def train(cfg: TrainPipelineConfig, accelerator: Accelerator | None = None):
         if "observation.state" not in dataset.features:
             raise ValueError("event_sampler requires observation.state to be present in the training dataset.")
         transformed_state_names = dataset.features["observation.state"].get("names")
-        if transformed_state_names is None:
-            raise ValueError(
-                "event_sampler requires transformed observation.state names in dataset.features['observation.state']['names']."
-            )
+        if not transformed_state_names:
+            transformed_state_names = getattr(cfg.policy, "state_feature_names", None)
+            if transformed_state_names:
+                logging.warning(
+                    "event_sampler falling back to policy.state_feature_names because dataset.features['observation.state']['names'] is missing."
+                )
+            else:
+                raise ValueError(
+                    "event_sampler requires transformed observation.state names in dataset.features['observation.state']['names'] "
+                    "or policy.state_feature_names."
+                )
 
         sampler = RangeEventSampler(
             dataset.meta.episodes["dataset_from_index"],
@@ -373,6 +386,9 @@ def train(cfg: TrainPipelineConfig, accelerator: Accelerator | None = None):
             event_high=cfg.event_sampler.high,
             event_horizon=cfg.event_sampler.horizon,
             event_probability=cfg.event_sampler.probability,
+            change_event_state_names=cfg.event_sampler.change_state_names,
+            change_event_thresholds=cfg.event_sampler.change_thresholds,
+            combine_mode=cfg.event_sampler.combine_mode,
             episode_indices_to_use=dataset.episodes,
             drop_n_last_frames=drop_n_last_frames,
             shuffle=True,
@@ -380,13 +396,26 @@ def train(cfg: TrainPipelineConfig, accelerator: Accelerator | None = None):
         shuffle = False
         if is_main_process:
             logging.info(
-                "Event-biased sampler enabled: state_names=%s range=(%s, %s) horizon=%d probability=%s",
+                "Event-biased sampler enabled: state_names=%s change_state_names=%s range=(%s, %s) horizon=%d probability=%s combine_mode=%s",
                 cfg.event_sampler.state_names,
+                cfg.event_sampler.change_state_names,
                 cfg.event_sampler.low,
                 cfg.event_sampler.high,
                 cfg.event_sampler.horizon,
                 cfg.event_sampler.probability,
+                cfg.event_sampler.combine_mode,
             )
+            if cfg.event_sampler.change_state_names:
+                logging.info(
+                    "Event-biased sampler change thresholds: %s",
+                    dict(
+                        zip(
+                            cfg.event_sampler.change_state_names,
+                            cfg.event_sampler.change_thresholds,
+                            strict=True,
+                        )
+                    ),
+                )
             logging.info(
                 "Event-biased sampler stats: valid_frames=%d special_frames=%d special_fraction=%.4f",
                 len(sampler.indices),

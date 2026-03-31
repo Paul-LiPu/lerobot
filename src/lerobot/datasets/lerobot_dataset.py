@@ -15,6 +15,7 @@
 # limitations under the License.
 import concurrent.futures
 import contextlib
+import json
 import logging
 import shutil
 import tempfile
@@ -69,6 +70,7 @@ from lerobot.datasets.video_utils import (
 from lerobot.utils.constants import HF_LEROBOT_HOME
 
 logger = logging.getLogger(__name__)
+MAX_MISSING_TASK_VARIANT_WARNINGS = 10
 
 
 def _encode_video_worker(
@@ -96,6 +98,7 @@ class LeRobotDataset(torch.utils.data.Dataset):
         root: str | Path | None = None,
         episodes: list[int] | None = None,
         image_transforms: Callable | None = None,
+        task_variants_path: str | Path | None = None,
         delta_timestamps: dict[str, list[float]] | None = None,
         tolerance_s: float = 1e-4,
         revision: str | None = None,
@@ -234,6 +237,7 @@ class LeRobotDataset(torch.utils.data.Dataset):
         self.repo_id = repo_id
         self.root = Path(root) if root else HF_LEROBOT_HOME / repo_id
         self.image_transforms = image_transforms
+        self.task_variants_path = Path(task_variants_path) if task_variants_path else None
         self.delta_timestamps = delta_timestamps
         self.episodes = episodes
         self.tolerance_s = tolerance_s
@@ -252,6 +256,7 @@ class LeRobotDataset(torch.utils.data.Dataset):
         self.latest_episode = None
         self._current_file_start_frame = None  # Track the starting frame index of the current parquet file
         self._streaming_encoder = None
+        self._task_variants = self._load_task_variants(self.task_variants_path)
 
         self.root.mkdir(exist_ok=True, parents=True)
 
@@ -259,6 +264,7 @@ class LeRobotDataset(torch.utils.data.Dataset):
         self.meta = LeRobotDatasetMetadata(
             self.repo_id, self.root, self.revision, force_cache_sync=force_cache_sync
         )
+        self._warn_about_missing_task_variants()
 
         # Track dataset state for efficient incremental writing
         self._lazy_loading = False
@@ -304,6 +310,81 @@ class LeRobotDataset(torch.utils.data.Dataset):
                 preset=None,
                 queue_maxsize=encoder_queue_maxsize,
                 encoder_threads=encoder_threads,
+            )
+
+    @staticmethod
+    def _load_task_variants(task_variants_path: Path | None) -> dict[str, tuple[str, ...]]:
+        if task_variants_path is None:
+            return {}
+
+        with open(task_variants_path) as f:
+            raw_mapping = json.load(f)
+
+        if not isinstance(raw_mapping, dict):
+            raise ValueError(
+                f"Task variants file must contain a JSON object mapping canonical strings to variant lists, got "
+                f"{type(raw_mapping).__name__}."
+            )
+
+        normalized_mapping: dict[str, tuple[str, ...]] = {}
+        for canonical_task, variants in raw_mapping.items():
+            if not isinstance(canonical_task, str):
+                raise ValueError("Task variants file keys must be strings.")
+            if not isinstance(variants, list):
+                raise ValueError(f"Task variants for '{canonical_task}' must be a list of strings.")
+
+            if not canonical_task.strip():
+                continue
+
+            deduped_variants: list[str] = []
+            seen = {canonical_task}
+            for variant in variants:
+                if not isinstance(variant, str):
+                    raise ValueError(f"Task variants for '{canonical_task}' must contain only strings.")
+                normalized_variant = variant.strip()
+                if not normalized_variant or normalized_variant in seen:
+                    continue
+                seen.add(normalized_variant)
+                deduped_variants.append(normalized_variant)
+
+            if deduped_variants:
+                normalized_mapping[canonical_task] = tuple(deduped_variants)
+
+        return normalized_mapping
+
+    def _sample_task_variant(self, canonical_task: str) -> str:
+        variants = self._task_variants.get(canonical_task)
+        if not variants:
+            return canonical_task
+
+        candidates = (canonical_task, *variants)
+        sampled_index = torch.randint(len(candidates), size=()).item()
+        return candidates[sampled_index]
+
+    def _warn_about_missing_task_variants(self) -> None:
+        if self.task_variants_path is None or not self._task_variants:
+            return
+
+        missing_tasks = [
+            task for task in self.meta.tasks.index.tolist() if isinstance(task, str) and task not in self._task_variants
+        ]
+        if not missing_tasks:
+            return
+
+        shown_tasks = missing_tasks[:MAX_MISSING_TASK_VARIANT_WARNINGS]
+        for task in shown_tasks:
+            logger.warning(
+                "No task instruction variants found for dataset task '%s' in %s.",
+                task,
+                self.task_variants_path,
+            )
+
+        remaining_count = len(missing_tasks) - len(shown_tasks)
+        if remaining_count > 0:
+            logger.warning(
+                "Suppressed %d additional missing task-variant warnings for dataset %s.",
+                remaining_count,
+                self.repo_id,
             )
 
     def _close_writer(self) -> None:
@@ -634,7 +715,8 @@ class LeRobotDataset(torch.utils.data.Dataset):
 
         # Add task as a string
         task_idx = item["task_index"].item()
-        item["task"] = self.meta.tasks.iloc[task_idx].name
+        canonical_task = self.meta.tasks.iloc[task_idx].name
+        item["task"] = self._sample_task_variant(canonical_task)
 
         # add subtask information if available
         if "subtask_index" in self.features and self.meta.subtasks is not None:

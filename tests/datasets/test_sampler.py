@@ -19,6 +19,7 @@ import pytest
 import torch
 from datasets import Dataset
 
+from lerobot.configs.train import EventSamplerConfig
 from lerobot.datasets.io_utils import (
     hf_transform_to_torch,
 )
@@ -275,4 +276,102 @@ def test_range_event_sampler_rejects_unknown_state_names():
             event_horizon=0,
             event_probability=0.5,
             shuffle=False,
+        )
+
+
+def test_range_event_sampler_marks_change_event_frames_within_horizon():
+    states = torch.tensor(
+        [
+            [0.0, 0.0],
+            [0.0, 0.0],
+            [0.6, 0.0],
+            [0.6, 0.0],
+            [0.6, 1.0],
+            [0.6, 1.0],
+        ],
+        dtype=torch.float32,
+    )
+    sampler = RangeEventSampler(
+        [0],
+        [6],
+        observation_states=states,
+        state_feature_names=["gripper.pos", "DO_1"],
+        event_state_names=[],
+        event_low=0.1,
+        event_high=0.5,
+        event_horizon=2,
+        event_probability=0.5,
+        change_event_state_names=["gripper.pos", "DO_1"],
+        change_event_thresholds=[0.1, 0.1],
+        shuffle=False,
+    )
+    assert sampler.special_indices == [0, 1, 2, 3]
+
+
+def test_range_event_sampler_combines_range_and_change_events_with_or():
+    states = torch.tensor(
+        [
+            [0.0, 0.0],
+            [0.2, 0.0],
+            [0.2, 0.0],
+            [0.8, 0.0],
+            [0.8, 1.0],
+        ],
+        dtype=torch.float32,
+    )
+    sampler = RangeEventSampler(
+        [0],
+        [5],
+        observation_states=states,
+        state_feature_names=["gripper.pos", "DO_1"],
+        event_state_names=["gripper.pos"],
+        event_low=0.1,
+        event_high=0.5,
+        event_horizon=1,
+        event_probability=0.5,
+        change_event_state_names=["DO_1"],
+        change_event_thresholds=[0.1],
+        combine_mode="or",
+        shuffle=False,
+    )
+    assert sampler.special_indices == [0, 1, 3]
+
+
+def test_range_event_sampler_change_events_clip_to_episode_end():
+    states = torch.tensor(
+        [
+            [0.0],
+            [0.0],
+            [0.0],
+            [1.0],
+        ],
+        dtype=torch.float32,
+    )
+    sampler = RangeEventSampler(
+        [0, 2],
+        [2, 4],
+        observation_states=states,
+        state_feature_names=["DO_1"],
+        event_state_names=[],
+        event_low=0.1,
+        event_high=0.5,
+        event_horizon=3,
+        event_probability=0.5,
+        change_event_state_names=["DO_1"],
+        change_event_thresholds=[0.1],
+        shuffle=False,
+    )
+    assert sampler.special_indices == [2]
+
+
+def test_event_sampler_config_rejects_mismatched_change_threshold_lengths():
+    with pytest.raises(
+        ValueError,
+        match="event_sampler.change_state_names and event_sampler.change_thresholds must have the same length",
+    ):
+        EventSamplerConfig(
+            enable=True,
+            state_names=["gripper.pos"],
+            change_state_names=["gripper.pos", "DO_1"],
+            change_thresholds=[0.1],
         )

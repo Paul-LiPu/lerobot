@@ -13,10 +13,10 @@ set -euo pipefail
 # DEFAULT_SINGLE_TASK="Use gripper to pick up this black taped box"
 # DEFAULT_POLICY_NAME="pi05_sjaj_gripper-box-plate-fdoor"
 
-INITIAL_POSE_FILE="initial_pose_lebai-gripper-plate_0.json"
-DEFAULT_EVAL_DATASET_NAME="eval_lebai_pi05_gripper_plate"
-DEFAULT_SINGLE_TASK="Use gripper to pick up this plate"
-DEFAULT_POLICY_NAME="pi05_sjaj_gripper-box-plate-fdoor"
+# INITIAL_POSE_FILE="initial_pose_lebai-gripper-plate_0.json"
+# DEFAULT_EVAL_DATASET_NAME="eval_lebai_pi05_gripper_plate"
+# DEFAULT_SINGLE_TASK="Use gripper to pick up this plate"
+# DEFAULT_POLICY_NAME="pi05_sjaj_gripper-box-plate-fdoor"
 
 # INITIAL_POSE_FILE="initial_pose_lebai-open-fridge-door_0.json"
 # DEFAULT_EVAL_DATASET_NAME="eval_lebai_pi05_open-fridge"
@@ -27,12 +27,42 @@ DEFAULT_POLICY_NAME="pi05_sjaj_gripper-box-plate-fdoor"
 # DEFAULT_SINGLE_TASK="Use gripper to pick up this black taped box"
 # DEFAULT_SINGLE_TASK="Grab the ingredient box with gripper"
 
+
+INITIAL_POSE_FILE="initial_pose_lebai-gripper-black-taped-box-2_0.json"
+DEFAULT_EVAL_DATASET_NAME="eval_lebai_pi05_gripper_box2"
+DEFAULT_SINGLE_TASK="Use gripper to pick up this black taped box"
+# DEFAULT_SINGLE_TASK="Use the robotic gripper to lift the black taped box"
+# DEFAULT_SINGLE_TASK="Engage grip and lift the black taped box"
+DEFAULT_POLICY_NAME="pi05_sjaj_gripper-box-plate-fdoor"
+
+# INITIAL_POSE_FILE="initial_pose_lebai-gripper-black-taped-box-2_0.json"
+# DEFAULT_EVAL_DATASET_NAME="eval_lebai_pi05_gripper_box"
+# DEFAULT_SINGLE_TASK="Use gripper to pick up this black taped box"
+# # DEFAULT_SINGLE_TASK="Use the robotic gripper to lift the black taped box"
+# # DEFAULT_SINGLE_TASK="Engage grip and lift the black taped box"
+# DEFAULT_POLICY_NAME="pi05_sjaj_4tasks-hetero"
+
+# INITIAL_POSE_FILE="initial_pose_lebai-gripper-plate_0.json"
+# DEFAULT_EVAL_DATASET_NAME="eval_lebai_pi05_gripper_plate"
+# DEFAULT_SINGLE_TASK="Use gripper to pick up this plate"
+# DEFAULT_POLICY_NAME="pi05_sjaj_4tasks-hetero"
+
+# INITIAL_POSE_FILE="initial_pose_lebai-open-fridge-door_0.json"
+# DEFAULT_EVAL_DATASET_NAME="eval_lebai_pi05_open-fridge"
+# DEFAULT_SINGLE_TASK="open the door of the refrigerator"
+# DEFAULT_POLICY_NAME="pi05_sjaj_4tasks-hetero"
+
+# INITIAL_POSE_FILE="initial_pose_lebai-suction-plate_0.json"
+# DEFAULT_EVAL_DATASET_NAME="eval_lebai_pi05_suction-plate"
+# DEFAULT_SINGLE_TASK="pick up the plate using suction cup"
+# DEFAULT_POLICY_NAME="pi05_sjaj_4tasks-hetero"
+
 DEFAULT_N_ACTION_STEPS=30
 DEFAULT_NUM_EPISODES=10
 DEFAULT_EPISODE_TIME_S=60
 DEFAULT_RESET_TIME_S=60
 DEFAULT_DEBUG=1
-CAMERA_RESOLUTION="${CAMERA_RESOLUTION:-1080p}"
+CAMERA_RESOLUTION="${CAMERA_RESOLUTION:-360p}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 export TORCHINDUCTOR_CACHE_DIR="${SCRIPT_DIR}/.torchinductor_cache"
